@@ -10,15 +10,15 @@ Enable web search for pi users who have Gemini CLI authenticated but no `GEMINI_
 
 ## Current State
 
-**S01 complete (2026-03-16).** Core search functionality implemented and tested:
-- 41 passing unit tests across 4 test files
-- TypeScript compilation successful with strict mode
-- Tool registered with pi extension API
-- NDJSON parsing extracts assistant messages and markdown links
-- URL resolution via HEAD requests with graceful fallback
-- Search verification detects memory answers (NO_SEARCH warning)
+**S02 complete (2026-03-16).** Operability & resilience features implemented and tested:
+- 64 passing unit tests (41 existing + 23 new from S02)
+- In-session query cache with normalized query keys
+- Availability detection module with CLI binary and credential checks
+- Progress streaming via onUpdate callback at 4 milestones
+- Environment variable configuration (GEMINI_SEARCH_MODEL, GEMINI_SEARCH_TIMEOUT)
+- Structured error reporting with explicit error codes
 
-**Ready for S02:** Operability & resilience (caching, availability detection, progress streaming, cancellation, environment configuration).
+**Ready for S03:** Verification & integration (comprehensive integration tests and manual UAT).
 
 ## Architecture / Key Patterns
 

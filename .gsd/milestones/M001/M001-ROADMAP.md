@@ -60,7 +60,7 @@ This milestone is complete only when all are true:
 - [x] **S01: Core search functionality** `risk:high` `depends:[]`
   > After this: User can invoke `gemini_cli_search` tool and receive AI-synthesized answers with resolved source URLs, with search verification warnings when Gemini answers from memory.
 
-- [ ] **S02: Operability & resilience** `risk:medium` `depends:[S01]`
+- [x] **S02: Operability & resilience** `risk:medium` `depends:[S01]`
   > After this: Extension handles errors gracefully, caches repeated queries, detects availability, streams progress, and supports cancellation.
 
 - [ ] **S03: Verification & integration** `risk:low` `depends:[S02]`

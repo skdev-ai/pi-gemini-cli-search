@@ -14,104 +14,7 @@ Guidelines:
 
 ## Active
 
-### R001 — Web search via Gemini CLI subprocess
-- Class: core-capability
-- Status: active
-- Description: Spawn `gemini -o stream-json -p "<prompt>" --yolo -m gemini-2.5-flash` as subprocess, return structured results
-- Why it matters: Core functionality - enables search without API key, uses user's Gemini CLI OAuth
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Uses `-p` flag for headless mode, `--yolo` for auto-accept tool calls
-
-### R002 — NDJSON parsing with source extraction
-- Class: core-capability
-- Status: active
-- Description: Parse Gemini CLI's stream-json output, concatenate assistant message chunks, extract markdown links from text content
-- Why it matters: Gemini CLI doesn't provide structured grounding metadata - sources are baked into assistant text as markdown links
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Sources parsed from text, not from structured metadata
-
-### R003 — Grounding redirect URL resolution
-- Class: core-capability
-- Status: active
-- Description: HEAD request each `vertexaisearch.cloud.google.com/grounding-api-redirect/...` URL to extract actual source domain via Location header; fallback to using redirect URL as-is if resolution fails
-- Why it matters: Without resolution, users only see opaque redirect URLs, not actual source domains
-- Source: user
-- Primary owning slice: M001/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Graceful degradation - if HEAD fails or returns non-302, use URL as-is
-
-### R004 — In-session query caching
-- Class: operability
-- Status: active
-- Description: Cache search results keyed by normalized query for session duration
-- Why it matters: Repeated identical queries are free; proven pattern from existing google_search extension
-- Source: inferred
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: TTL = session duration; normalize query for cache key
-
-### R005 — Availability detection
-- Class: operability
-- Status: active
-- Description: Check if `gemini` CLI binary exists and `~/.gemini/oauth_creds.json` credential file exists before registering tool; detect presence, not token validity
-- Why it matters: Don't expose unavailable tool to LLM; clear error messages; actual auth failures surface at runtime
-- Source: research
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Token may be expired - runtime errors distinguish auth failures
-
-### R006 — Progress updates during search
-- Class: failure-visibility
-- Status: active
-- Description: Stream progress via `onUpdate` during subprocess execution
-- Why it matters: Search duration varies (typically ~10 seconds) - needs visibility to user
-- Source: inferred
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Use extension's onUpdate callback for streaming
-
-### R007 — Cancellation support
-- Class: operability
-- Status: active
-- Description: Honor abort signal to terminate subprocess early
-- Why it matters: User should be able to cancel long-running searches
-- Source: inferred
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Check signal.aborted, terminate subprocess on cancellation
-
-### R008 — Configurable timeout and model
-- Class: operability
-- Status: active
-- Description: Environment variables `GEMINI_SEARCH_MODEL` (default: `gemini-2.5-flash`) and `GEMINI_SEARCH_TIMEOUT` (default: 60s)
-- Why it matters: Flexibility for different models and timeout preferences
-- Source: user
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Follow CCS conventions for env var naming
-
-### R009 — Structured error reporting
-- Class: failure-visibility
-- Status: active
-- Description: Return clear error messages distinguishing "CLI not found", "not authenticated", "timeout", "search failed"
-- Why it matters: LLM needs to understand what went wrong and communicate to user
-- Source: inferred
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Error types should be machine-distinguishable
+<!-- None - all requirements validated or deferred/out-of-scope -->
 
 ## Validated
 
@@ -132,6 +35,42 @@ Guidelines:
 - Status: validated
 - Validation evidence: 12 unit tests in `src/url-resolver.test.ts` — HEAD requests with `redirect: 'manual'` intercept 302/301/307/308 responses; Location header extraction works; fallback on all failure modes
 - Validated by: M001/S01
+
+### R004 — In-session query caching
+- Class: operability
+- Status: validated
+- Validation evidence: 11 unit tests in `src/cache.test.ts` — get/set round-trip, query normalization (case-insensitive, whitespace trimming), session reset via `pi.on('session_start')`, error and warning caching; integration in execute handler returns cached results instantly
+- Validated by: M001/S02
+
+### R005 — Availability detection
+- Class: operability
+- Status: validated
+- Validation evidence: 7 unit tests in `src/availability.test.ts` — CLI binary detection via `execSync('which gemini')`, credential file existence check with HOME expansion, explicit error codes (`CLI_NOT_FOUND`, `NOT_AUTHENTICATED`); module extracted to dedicated `src/availability.ts`
+- Validated by: M001/S02
+
+### R006 — Progress updates during search
+- Class: failure-visibility
+- Status: validated
+- Validation evidence: 3 unit tests in `src/gemini-cli.test.ts` — `onUpdate` callback invoked at 4 milestones ("Starting search…", "Parsing response…", "Resolving X source URLs…", "Complete"); wired through execute handler in `src/index.ts`
+- Validated by: M001/S02
+
+### R007 — Cancellation support
+- Class: operability
+- Status: validated
+- Validation evidence: AbortSignal honored in `src/gemini-cli.ts` — subprocess terminated on cancellation; tested in S01 integration tests
+- Validated by: M001/S01
+
+### R008 — Configurable timeout and model
+- Class: operability
+- Status: validated
+- Validation evidence: Environment variables `GEMINI_SEARCH_MODEL` and `GEMINI_SEARCH_TIMEOUT` read in `src/gemini-cli.ts` with defaults; documented in README.md
+- Validated by: M001/S01
+
+### R009 — Structured error reporting
+- Class: failure-visibility
+- Status: validated
+- Validation evidence: Error types (`CLI_NOT_FOUND`, `NOT_AUTHENTICATED`, `TIMEOUT`, `PARSE_ERROR`, `SEARCH_FAILED`) implemented in `src/gemini-cli.ts` and `src/index.ts`; `renderError()` maps error codes to user-friendly messages; cached along with successful results
+- Validated by: M001/S02
 
 ### R010 — Search verification (detect memory answers)
 - Class: quality-attribute
@@ -185,12 +124,12 @@ Guidelines:
 | R001 | core-capability | validated | M001/S01 | none | integration test + manual query |
 | R002 | core-capability | validated | M001/S01 | none | 11 fixture-based unit tests |
 | R003 | core-capability | validated | M001/S01 | none | 12 URL resolver tests |
-| R004 | operability | active | M001/S02 | none | unmapped |
-| R005 | operability | active | M001/S02 | none | unmapped |
-| R006 | failure-visibility | active | M001/S02 | none | unmapped |
-| R007 | operability | active | M001/S02 | none | unmapped |
-| R008 | operability | active | M001/S02 | none | unmapped |
-| R009 | failure-visibility | active | M001/S02 | none | unmapped |
+| R004 | operability | validated | M001/S02 | none | 11 cache tests + integration |
+| R005 | operability | validated | M001/S02 | none | 7 availability tests |
+| R006 | failure-visibility | validated | M001/S02 | none | 3 onUpdate tests |
+| R007 | operability | validated | M001/S02 | none | S01 integration tests |
+| R008 | operability | validated | M001/S02 | none | env var tests + docs |
+| R009 | failure-visibility | validated | M001/S02 | none | error type tests + docs |
 | R010 | quality-attribute | validated | M001/S01 | none | fixture tests + manual query |
 | R011 | operability | out-of-scope | none | none | n/a |
 | R012 | integration | out-of-scope | none | none | n/a |
@@ -198,7 +137,7 @@ Guidelines:
 
 ## Coverage Summary
 
-- Active requirements: 6
-- Mapped to slices: 10
-- Validated: 4 (R001, R002, R003, R010)
-- Unmapped active requirements: 0
+- Active requirements: 0
+- Validated: 10 (R001-R010)
+- Out of scope: 3 (R011-R013)
+- Unmapped: 0
