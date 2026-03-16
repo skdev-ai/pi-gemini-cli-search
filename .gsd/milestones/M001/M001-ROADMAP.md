@@ -57,7 +57,7 @@ This milestone is complete only when all are true:
 
 ## Slices
 
-- [ ] **S01: Core search functionality** `risk:high` `depends:[]`
+- [x] **S01: Core search functionality** `risk:high` `depends:[]`
   > After this: User can invoke `gemini_cli_search` tool and receive AI-synthesized answers with resolved source URLs, with search verification warnings when Gemini answers from memory.
 
 - [ ] **S02: Operability & resilience** `risk:medium` `depends:[S01]`

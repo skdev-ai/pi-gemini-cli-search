@@ -113,20 +113,31 @@ Guidelines:
 - Validation: unmapped
 - Notes: Error types should be machine-distinguishable
 
-### R010 — Search verification (detect memory answers)
-- Class: quality-attribute
-- Status: active
-- Description: Detect whether `{"type":"tool_use","tool_name":"google_web_search"}` event appears in NDJSON output; if absent, return warning alongside answer
-- Why it matters: Prompt instructs Gemini to search but doesn't force it like API's `tools: [{ googleSearch: {} }]` - without verification, users may get stale information believing it's current
-- Source: research
-- Primary owning slice: M001/S01
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Warning returned to LLM alongside answer - transparent, lets LLM decide
-
 ## Validated
 
-<!-- None yet - implementation not started -->
+### R001 — Web search via Gemini CLI subprocess
+- Class: core-capability
+- Status: validated
+- Validation evidence: S01 integration test — real Gemini CLI subprocess executes and returns structured SearchResult; `executeSearch()` in `src/gemini-cli.ts` proven by manual query "what is 2+2"
+- Validated by: M001/S01
+
+### R002 — NDJSON parsing with source extraction
+- Class: core-capability
+- Status: validated
+- Validation evidence: 11 unit tests in `src/gemini-cli.test.ts` — fixture-based tests extract assistant messages and markdown links; regex `/\[([^\]]+)\]\(([^)]+)\)/g` proven on real Gemini CLI output format
+- Validated by: M001/S01
+
+### R003 — Grounding redirect URL resolution
+- Class: core-capability
+- Status: validated
+- Validation evidence: 12 unit tests in `src/url-resolver.test.ts` — HEAD requests with `redirect: 'manual'` intercept 302/301/307/308 responses; Location header extraction works; fallback on all failure modes
+- Validated by: M001/S01
+
+### R010 — Search verification (detect memory answers)
+- Class: quality-attribute
+- Status: validated
+- Validation evidence: Fixture tests detect `google_web_search` tool_use events; `NO_SEARCH` warning returned when absent; manual test with arithmetic query returns warning as expected
+- Validated by: M001/S01
 
 ## Deferred
 
@@ -171,23 +182,23 @@ Guidelines:
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
 |----|-------|--------|---------------|------------|-------|
-| R001 | core-capability | active | M001/S01 | none | unmapped |
-| R002 | core-capability | active | M001/S01 | none | unmapped |
-| R003 | core-capability | active | M001/S01 | none | unmapped |
+| R001 | core-capability | validated | M001/S01 | none | integration test + manual query |
+| R002 | core-capability | validated | M001/S01 | none | 11 fixture-based unit tests |
+| R003 | core-capability | validated | M001/S01 | none | 12 URL resolver tests |
 | R004 | operability | active | M001/S02 | none | unmapped |
 | R005 | operability | active | M001/S02 | none | unmapped |
 | R006 | failure-visibility | active | M001/S02 | none | unmapped |
 | R007 | operability | active | M001/S02 | none | unmapped |
 | R008 | operability | active | M001/S02 | none | unmapped |
 | R009 | failure-visibility | active | M001/S02 | none | unmapped |
-| R010 | quality-attribute | active | M001/S01 | none | unmapped |
+| R010 | quality-attribute | validated | M001/S01 | none | fixture tests + manual query |
 | R011 | operability | out-of-scope | none | none | n/a |
 | R012 | integration | out-of-scope | none | none | n/a |
 | R013 | differentiator | out-of-scope | none | none | n/a |
 
 ## Coverage Summary
 
-- Active requirements: 10
+- Active requirements: 6
 - Mapped to slices: 10
-- Validated: 0
+- Validated: 4 (R001, R002, R003, R010)
 - Unmapped active requirements: 0
