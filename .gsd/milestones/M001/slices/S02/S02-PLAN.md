@@ -78,7 +78,7 @@ status: planning
   - Verify: `npm test -- gemini-cli.test.ts` — 3 new tests for onUpdate callbacks; manual: query "what is TypeScript", verify progress messages appear
   - Done when: onUpdate called at 4+ milestones; tests verify callback is invoked with expected messages
 
-- [ ] **T04: Integration & documentation** `est:45m`
+- [x] **T04: Integration & documentation** `est:45m`
   - Why: Tie all S02 features together; ensure caching, availability, and progress work in concert
   - Files: `src/index.ts`, `src/gemini-cli.ts`, `.gsd/milestones/M001/slices/S02/S02-UAT.md`
   - Do: Integrate cache lookup as first step in execute handler (before any progress events); wire availability check before execution; document environment variables (`GEMINI_SEARCH_MODEL`, `GEMINI_SEARCH_TIMEOUT`) in README; create S02-UAT.md with manual test cases; run full test suite
