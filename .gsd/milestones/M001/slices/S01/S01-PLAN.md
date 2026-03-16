@@ -62,7 +62,7 @@
   - Verify: `npm test -- gemini-cli.test.ts` passes; manual test with real Gemini CLI returns parsed result
   - Done when: Subprocess spawns, NDJSON parses, sources extract, URLs resolve, search verification works
 
-- [ ] **T04: Register tool with pi extension API** `est:60m`
+- [x] **T04: Register tool with pi extension API** `est:60m`
   - Why: Makes the functionality available to pi agent; wires all modules together
   - Files: `src/index.ts`, `src/index.test.ts`
   - Do: Follow jmunch-enforcer pattern for tool registration; define TypeBox schema for tool parameters; implement execute() handler calling gemini-cli; implement render functions for answer and error states; add promptGuidelines to help LLM choose tool correctly; export extension entry point
