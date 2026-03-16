@@ -71,7 +71,7 @@ status: planning
   - Verify: `npm test -- availability.test.ts` — 5 tests pass; `npx tsc --noEmit` — 0 errors
   - Done when: Availability functions are in dedicated module with tests; index.ts imports and uses them
 
-- [ ] **T03: Progress streaming** `est:45m`
+- [x] **T03: Progress streaming** `est:45m`
   - Why: R006 requires progress updates during search; users need visibility into ~10-second search duration
   - Files: `src/types.ts`, `src/gemini-cli.ts`, `src/index.ts`
   - Do: Add `onUpdate?: (message: string) => void` to `SearchOptions` in types.ts; wire `onUpdate` through `executeSearch(query, options)` in gemini-cli.ts — call at major milestones (start, parsing, URL resolution, complete); update execute handler in index.ts to use full signature `(toolCallId, params, signal, onUpdate, ctx)` and pass `onUpdate` to `executeSearch()`

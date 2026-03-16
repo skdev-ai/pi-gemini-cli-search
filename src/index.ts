@@ -91,7 +91,13 @@ export default function (pi: ExtensionAPI) {
       'Do NOT use for historical facts, well-established knowledge, or information unlikely to have changed',
     ].join('\n'),
     
-    execute: async (params: { query: string }) => {
+    execute: async (
+      _toolCallId: string,
+      params: { query: string },
+      signal: AbortSignal | undefined,
+      onUpdate: ((message: string) => void) | undefined,
+      _ctx: unknown
+    ) => {
       // Check cache first
       const cached = get(params.query);
       if (cached) {
@@ -128,7 +134,10 @@ export default function (pi: ExtensionAPI) {
       }
       
       // Execute the search
-      const result = await executeSearch(params.query);
+      const result = await executeSearch(params.query, {
+        signal,
+        onUpdate,
+      });
       
       // Cache the result (including errors/warnings)
       set(params.query, result);

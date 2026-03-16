@@ -27,7 +27,7 @@ function extractMarkdownLinks(text: string): string[] {
  * the NDJSON output to extract the assistant's answer and grounding sources.
  * 
  * @param query - The search query to execute
- * @param options - Optional search configuration (model, timeout, abort signal)
+ * @param options - Optional search configuration (model, timeout, abort signal, onUpdate callback)
  * @returns Promise resolving to SearchResult with answer, sources, and optional warning/error
  */
 export async function executeSearch(
@@ -37,11 +37,17 @@ export async function executeSearch(
   const model = options?.model ?? process.env.GEMINI_SEARCH_MODEL ?? 'gemini-2.5-flash';
   const timeout = options?.timeout ?? Number(process.env.GEMINI_SEARCH_TIMEOUT ?? 60000);
   const signal = options?.signal;
+  const onUpdate = options?.onUpdate;
 
   // Build prompt using CCS template with explicit search instruction
   const prompt = `Use the google_web_search tool to search for current information about: ${query}`;
 
   return new Promise((resolve) => {
+    // Notify start
+    if (onUpdate) {
+      onUpdate('Starting search…');
+    }
+
     // Spawn subprocess with stream-json output
     const child: ChildProcess = spawn('gemini', [
       '-o', 'stream-json',
@@ -167,8 +173,18 @@ export async function executeSearch(
         return;
       }
 
+      // Notify parsing
+      if (onUpdate) {
+        onUpdate('Parsing response…');
+      }
+
       // Extract markdown links from answer text
       const extractedUrls = extractMarkdownLinks(answerText);
+
+      // Notify URL resolution
+      if (onUpdate && extractedUrls.length > 0) {
+        onUpdate(`Resolving ${extractedUrls.length} source URLs…`);
+      }
 
       // Resolve grounding URLs
       const groundingUrls = await resolveGroundingUrls(extractedUrls);
@@ -180,6 +196,11 @@ export async function executeSearch(
           type: 'NO_SEARCH',
           message: 'Gemini answered from memory without using google_web_search tool. Information may be outdated.',
         };
+      }
+
+      // Notify complete
+      if (onUpdate) {
+        onUpdate('Complete');
       }
 
       resolve({

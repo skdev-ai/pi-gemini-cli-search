@@ -70,4 +70,6 @@ export interface SearchOptions {
   timeout?: number;
   /** Optional abort signal for cancellation */
   signal?: AbortSignal;
+  /** Optional callback for progress updates during search */
+  onUpdate?: (message: string) => void;
 }
