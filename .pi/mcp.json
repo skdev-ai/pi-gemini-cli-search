@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uv",
+      "args": ["tool", "run", "jcodemunch-mcp"],
+      "lifecycle": "lazy",
+      "directTools": true
+    },
+    "jdocmunch": {
+      "command": "uv",
+      "args": ["tool", "run", "jdocmunch-mcp"],
+      "lifecycle": "lazy",
+      "directTools": true
+    }
+  }
+}
