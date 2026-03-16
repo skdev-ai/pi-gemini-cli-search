@@ -1,0 +1,24 @@
+{
+  "name": "gemini-cli-search",
+  "version": "0.1.0",
+  "description": "Pi extension for web search via Gemini CLI with resolved source URLs",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "find src -name '*.test.ts' | xargs npx tsx --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pi",
+    "extension",
+    "gemini-cli",
+    "search"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0"
+  }
+}

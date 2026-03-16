@@ -40,7 +40,7 @@
 
 ## Tasks
 
-- [ ] **T01: Define shared types** `est:15m`
+- [x] **T01: Define shared types** `est:15m`
   - Why: All other modules depend on these types; defines the contract for SearchResult, GroundingUrl, SearchWarning, SearchError
   - Files: `src/types.ts`, `src/types.test.ts`
   - Do: Define TypeScript interfaces for all shared types; export from module; add basic type tests
