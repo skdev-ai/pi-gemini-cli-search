@@ -47,7 +47,7 @@
   - Verify: `npm test -- types.test.ts` passes; TypeScript compilation succeeds
   - Done when: Types compile, are exported, and test file validates type structure
 
-- [ ] **T02: Implement URL resolver** `est:45m`
+- [x] **T02: Implement URL resolver** `est:45m`
   - Why: Grounding redirect URLs must be resolved to actual domains; isolated function that's easy to test independently
   - Files: `src/url-resolver.ts`, `src/url-resolver.test.ts`
   - Do: Implement `resolveGroundingUrls(urls: string[]): Promise<string[]>` using fetch() with redirect: "manual"; extract Location header; fallback to URL as-is on failure; add unit tests with mocked fetch
