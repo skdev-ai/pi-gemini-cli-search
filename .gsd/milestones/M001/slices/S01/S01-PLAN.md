@@ -24,6 +24,7 @@
 - `node --test src/**/*.test.ts` — All test files pass
 - Manual test: Run extension with query "what is pi agent", verify answer has resolved URLs
 - Integration test: Execute real Gemini CLI subprocess, verify parsing extracts sources correctly
+- **Failure path verification:** Run with non-existent CLI binary or timeout=1, verify `SearchResult.error` contains structured `SearchError` with type `CLI_NOT_FOUND` or `TIMEOUT`
 
 ## Observability / Diagnostics
 
@@ -54,7 +55,7 @@
   - Verify: `npm test -- url-resolver.test.ts` passes; test covers success (302 redirect) and failure (network error, non-302) cases
   - Done when: URL resolver handles redirects, fallbacks, and all tests pass
 
-- [ ] **T03: Implement Gemini CLI subprocess execution and parsing** `est:90m`
+- [x] **T03: Implement Gemini CLI subprocess execution and parsing** `est:90m`
   - Why: Core riskiest functionality - proves NDJSON parsing works and search verification detects memory answers
   - Files: `src/gemini-cli.ts`, `src/gemini-cli.test.ts`, `src/fixtures/` (NDJSON test fixtures)
   - Do: Implement `executeSearch(query: string, options: SearchOptions): Promise<SearchResult>` using child_process.spawn(); parse NDJSON line-by-line; extract assistant message; detect google_web_search tool_use events; parse markdown links from text; call url-resolver; assemble SearchResult with warning if no search detected; add tests with recorded NDJSON fixtures
