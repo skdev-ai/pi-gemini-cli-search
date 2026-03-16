@@ -57,7 +57,7 @@ status: planning
 
 ## Tasks
 
-- [ ] **T01: In-session query cache** `est:45m`
+- [x] **T01: In-session query cache** `est:45m`
   - Why: R004 requires caching repeated queries; highest-value feature in S02 — prevents redundant subprocess execution
   - Files: `src/cache.ts`, `src/cache.test.ts`, `src/types.ts`
   - Do: Create `src/cache.ts` with `Map<string, SearchResult>` storage; implement `get(query)`, `set(query, result)`, `clear()`, `size()`; normalize query keys via `query.toLowerCase().trim()`; register `pi.on('session_start', () => cache.clear())` in index.ts; export cache type from types.ts

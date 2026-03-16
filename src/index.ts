@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { executeSearch } from "./gemini-cli.js";
 import type { SearchResult } from "./types.js";
+import { get, set, clear as clearCache } from "./cache.js";
 
 /**
  * Gemini CLI Search Extension
@@ -124,26 +125,46 @@ export default function (pi: ExtensionAPI) {
     ].join('\n'),
     
     execute: async (params: { query: string }) => {
+      // Check cache first
+      const cached = get(params.query);
+      if (cached) {
+        console.log('[gemini-cli-search] Cache hit for query:', params.query);
+        if (cached.error) {
+          return {
+            content: [{ type: 'text', text: renderError(cached) }],
+          };
+        }
+        return {
+          content: [{ type: 'text', text: renderAnswer(cached) }],
+        };
+      }
+      
       // Check availability before executing
       const availability = checkAvailability();
       if (!availability.available) {
+        const errorResult: SearchResult = {
+          answer: '',
+          sources: [],
+          error: {
+            type: 'CLI_NOT_FOUND',
+            message: availability.reason || 'Gemini CLI not available',
+          },
+        };
+        // Cache the error result
+        set(params.query, errorResult);
         return {
           content: [{ 
             type: 'text', 
-            text: renderError({
-              answer: '',
-              sources: [],
-              error: {
-                type: 'CLI_NOT_FOUND',
-                message: availability.reason || 'Gemini CLI not available',
-              },
-            }),
+            text: renderError(errorResult),
           }],
         };
       }
       
       // Execute the search
       const result = await executeSearch(params.query);
+      
+      // Cache the result (including errors/warnings)
+      set(params.query, result);
       
       // Render and return the result
       if (result.error) {
@@ -160,6 +181,9 @@ export default function (pi: ExtensionAPI) {
   
   // Notify on session start
   pi.on('session_start', async () => {
+    // Clear cache on session start to prevent stale data
+    clearCache();
+    
     const availability = checkAvailability();
     if (availability.available) {
       console.log('[gemini-cli-search] Tool available and ready');
