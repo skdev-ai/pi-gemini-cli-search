@@ -1,10 +1,9 @@
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { existsSync } from "node:fs";
-import { execSync } from "node:child_process";
 import { executeSearch } from "./gemini-cli.js";
 import type { SearchResult } from "./types.js";
 import { get, set, clear as clearCache } from "./cache.js";
+import { checkAvailability } from "./availability.js";
 
 /**
  * Gemini CLI Search Extension
@@ -20,38 +19,6 @@ const SearchParamsSchema = Type.Object({
     description: 'Search query for current information, recent events, or live data' 
   }),
 });
-
-// ── Availability Check ───────────────────────────────────────────────────────
-
-/**
- * Checks if the Gemini CLI tool is available and authenticated.
- * Returns true only if both the CLI binary exists and OAuth credentials are present.
- */
-function checkAvailability(): { available: boolean; reason?: string } {
-  // Check if gemini CLI is installed
-  try {
-    execSync('which gemini', { stdio: 'pipe' });
-  } catch {
-    return {
-      available: false,
-      reason: 'Gemini CLI not found. Install with: npm install -g @anthropics/gemini-cli',
-    };
-  }
-
-  // Check for OAuth credentials
-  const oauthPath = process.env.HOME 
-    ? `${process.env.HOME}/.gemini/oauth_creds.json`
-    : '~/.gemini/oauth_creds.json';
-  
-  if (!existsSync(oauthPath)) {
-    return {
-      available: false,
-      reason: 'OAuth credentials not found. Authenticate with: gemini auth login',
-    };
-  }
-
-  return { available: true };
-}
 
 // ── Result Rendering ────────────────────────────────────────────────────────
 

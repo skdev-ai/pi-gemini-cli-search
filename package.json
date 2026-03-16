@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "find src -name '*.test.ts' | xargs npx tsx --test",
+    "test": "npx tsx src/run-tests.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

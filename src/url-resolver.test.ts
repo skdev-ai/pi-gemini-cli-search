@@ -237,6 +237,24 @@ describe('resolveGroundingUrls', () => {
     fetchMock.mock.restore();
   });
 
+
+  it('should handle file:// scheme by returning original URL as-is with failure', async () => {
+    // Mock fetch to simulate an error when trying to fetch a file:// URL.
+    // In a typical Node.js environment without special setup, fetch will
+    // throw an error for file:// URLs.
+    const fetchMock = mock.method(globalThis, 'fetch', () => Promise.reject(new TypeError('Unsupported protocol file:')));
+
+    const originalUrl = 'file:///path/to/local/file.txt';
+    const results = await resolveGroundingUrls([originalUrl]);
+    const result = results[0] as GroundingUrl;
+
+    assert.strictEqual(result.original, originalUrl);
+    assert.strictEqual(result.resolved, originalUrl);
+    assert.strictEqual(result.resolvedSuccessfully, false);
+
+    fetchMock.mock.restore();
+  });
+
   it('should handle concurrent requests (all URLs processed in parallel)', async () => {
     const callTimes: number[] = [];
     const startTime = Date.now();
@@ -270,3 +288,4 @@ describe('resolveGroundingUrls', () => {
     fetchMock.mock.restore();
   });
 });
+

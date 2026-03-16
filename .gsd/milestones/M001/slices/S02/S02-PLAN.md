@@ -64,7 +64,7 @@ status: planning
   - Verify: `npm test -- cache.test.ts` — 8 tests pass; manual: run same query twice, verify second is instant
   - Done when: Cache module has 100% function coverage, integration test proves cache hit skips subprocess
 
-- [ ] **T02: Availability detection module** `est:30m`
+- [x] **T02: Availability detection module** `est:30m`
   - Why: R005 already implemented in index.ts but needs extraction to dedicated module for clarity and reusability
   - Files: `src/availability.ts`, `src/availability.test.ts`, `src/index.ts`
   - Do: Extract `checkAvailability()` logic from index.ts into `src/availability.ts` with `export function checkAvailability(): { available: boolean; reason?: string }` and `export function isAvailable(): boolean`; add tests for CLI binary detection, credential file detection, combined scenarios; update index.ts to import from availability module
