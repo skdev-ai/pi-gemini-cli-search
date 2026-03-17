@@ -238,3 +238,29 @@ export async function executeSearch(
     });
   });
 }
+
+// CLI entry point for standalone execution
+if (process.argv[1]?.includes('gemini-cli.ts') && process.argv[2]) {
+  const query = process.argv[2];
+  executeSearch(query)
+    .then(result => {
+      if (result.error) {
+        console.error(`Error [${result.error.type}]: ${result.error.message}`);
+        process.exit(1);
+      }
+      if (result.warning) {
+        console.warn(`Warning: ${result.warning.message}`);
+      }
+      console.log(result.answer);
+      if (result.sources.length > 0) {
+        console.log('\nSources:');
+        result.sources.forEach((source, i) => {
+          console.log(`${i + 1}. ${source}`);
+        });
+      }
+    })
+    .catch(err => {
+      console.error('Unexpected error:', err.message);
+      process.exit(1);
+    });
+}

@@ -39,7 +39,7 @@
 
 ## Tasks
 
-- [ ] **T01: Execute UAT tests and document results** `est:2h`
+- [x] **T01: Execute UAT tests and document results** `est:2h`
   - Why: All 10 requirements need runtime verification with real Gemini CLI and OAuth credentials; 64 unit tests prove code paths but not end-to-end functionality
   - Files: `.gsd/milestones/M001/slices/S02/S02-UAT.md`, `.gsd/worktrees/M001/.gsd/milestones/M001/slices/S03/S03-UAT-RESULTS.md`
   - Do:
