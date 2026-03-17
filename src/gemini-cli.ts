@@ -3,29 +3,68 @@ import type { SearchResult, SearchOptions, SearchWarning, SearchError } from './
 import { resolveGroundingUrls } from './url-resolver.js';
 
 /**
- * Extracts markdown links from text using regex.
- * Matches pattern: [text](url)
+ * Extracts links from Gemini CLI text output.
+ * Handles multiple formats Gemini uses:
+ *   1. Standard markdown: [text](url)
+ *   2. Reference style: [1] title\n(url)
+ *   3. Inline parenthetical: title (Source: [url](url))
+ *   4. Plain URLs on their own line
+ *
  * @param text - Text to extract links from
- * @returns Array of { title, url } found in markdown links
+ * @returns Array of { title, url } found
  */
-function extractMarkdownLinks(text: string): Array<{ title: string; url: string }> {
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+function extractLinks(text: string): Array<{ title: string; url: string }> {
   const links: Array<{ title: string; url: string }> = [];
-  let match: RegExpExecArray | null;
+  const seenUrls = new Set<string>();
 
-  while ((match = linkRegex.exec(text)) !== null) {
-    links.push({ title: match[1], url: match[2] });
+  // Pattern 1: Standard markdown [text](url)
+  const mdRegex = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = mdRegex.exec(text)) !== null) {
+    if (!seenUrls.has(match[2])) {
+      seenUrls.add(match[2]);
+      links.push({ title: match[1], url: match[2] });
+    }
+  }
+
+  // Pattern 2: Reference style — [N] title\n(url) or [N] title (url)
+  const refRegex = /\[\d+\]\s*([^\n(]+?)[\s\n]*\((https?:\/\/[^)]+)\)/g;
+  while ((match = refRegex.exec(text)) !== null) {
+    if (!seenUrls.has(match[2])) {
+      seenUrls.add(match[2]);
+      links.push({ title: match[1].trim(), url: match[2] });
+    }
+  }
+
+  // Pattern 3: Bare URLs not already captured
+  const bareUrlRegex = /(?:^|\s)(https?:\/\/[^\s)]+)/gm;
+  while ((match = bareUrlRegex.exec(text)) !== null) {
+    const url = match[1];
+    if (!seenUrls.has(url)) {
+      seenUrls.add(url);
+      // Use domain as title
+      try {
+        const domain = new URL(url).hostname.replace(/^www\./, '');
+        links.push({ title: domain, url });
+      } catch {
+        links.push({ title: url, url });
+      }
+    }
   }
 
   return links;
 }
 
 /**
- * Strips markdown links from text, replacing [title](url) with just the title.
- * Used to clean the answer text after extracting URLs separately.
+ * Strips link patterns from text to clean the answer.
+ * Removes markdown links, reference-style links, and bare URLs from source sections.
  */
-function stripMarkdownLinks(text: string): string {
-  return text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+function stripLinks(text: string): string {
+  // Remove markdown links, keep title
+  let cleaned = text.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, '$1');
+  // Remove reference-style URLs: (https://...)
+  cleaned = cleaned.replace(/\(https?:\/\/[^)]+\)/g, '');
+  return cleaned;
 }
 
 /**
@@ -162,7 +201,7 @@ export async function executeSearch(
       }
 
       // Extract markdown links (grounding redirect URLs)
-      const links = extractMarkdownLinks(fullText);
+      const links = extractLinks(fullText);
       const urls = links.map(l => l.url);
 
       // Notify URL resolution
@@ -174,7 +213,7 @@ export async function executeSearch(
       const groundingUrls = await resolveGroundingUrls(urls);
 
       // Clean the answer text — strip markdown link syntax, keep display text
-      const cleanAnswer = stripMarkdownLinks(fullText);
+      const cleanAnswer = stripLinks(fullText);
 
       // Build warning if no grounding URLs were found
       // (Gemini may have answered from memory without searching)
