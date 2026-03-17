@@ -51,7 +51,7 @@ export async function executeSearch(
   const onUpdate = options?.onUpdate;
 
   // Build prompt using CCS template with explicit search instruction
-  const prompt = `Use the google_web_search tool to search for current information about: ${query}`;
+  const prompt = `Use the google_web_search tool to search the web for: ${query}. Include source URLs.`;
 
   return new Promise((resolve) => {
     // Notify start
