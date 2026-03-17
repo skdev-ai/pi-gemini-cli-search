@@ -240,7 +240,7 @@ Instructions:
       if (links.length === 0) {
         warning = {
           type: 'NO_SEARCH',
-          message: 'No source URLs in response. Results cannot be verified or followed up with fetch_page.',
+          message: 'Gemini may have answered from memory — information may not be current.',
         };
       }
 
