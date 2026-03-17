@@ -81,7 +81,9 @@ function renderError(result: SearchResult): string {
 
 export default function (pi: ExtensionAPI) {
   // Register the gemini_cli_search tool
-  pi.registerTool('gemini_cli_search', {
+  pi.registerTool({
+    name: 'gemini_cli_search',
+    label: 'Gemini CLI Search',
     description: 'Search the web for current information, recent events, or live data using Gemini CLI. Use this instead of google_search when you need to leverage Gemini\'s reasoning capabilities with grounded search results. Returns AI-synthesized answers with resolved source URLs.',
     parameters: SearchParamsSchema,
     promptGuidelines: [
