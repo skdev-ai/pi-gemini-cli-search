@@ -236,11 +236,16 @@ Instructions:
       const cleanAnswer = stripLinks(fullText);
 
       // Build warning if no source URLs were found
+      // Check for named source references (e.g., "[1] umetravel.com", "Source: Google")
+      // to distinguish "searched but no URLs" from "didn't search at all"
+      const hasNamedSources = /(?:source|reference)s?\s*[:：]/i.test(fullText) ||
+        /\[\d+\]\s*\w+/i.test(fullText);
+
       let warning: SearchWarning | undefined;
-      if (links.length === 0) {
+      if (links.length === 0 && !hasNamedSources) {
         warning = {
           type: 'NO_SEARCH',
-          message: 'No grounding source URLs found in response. Gemini may have answered from memory — information may not be current.',
+          message: 'No sources found in response. Gemini may have answered from memory — information may not be current.',
         };
       }
 
