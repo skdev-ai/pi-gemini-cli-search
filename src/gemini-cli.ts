@@ -6,26 +6,37 @@ import { resolveGroundingUrls } from './url-resolver.js';
  * Extracts markdown links from text using regex.
  * Matches pattern: [text](url)
  * @param text - Text to extract links from
- * @returns Array of URLs found in markdown links
+ * @returns Array of { title, url } found in markdown links
  */
-function extractMarkdownLinks(text: string): string[] {
+function extractMarkdownLinks(text: string): Array<{ title: string; url: string }> {
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  const urls: string[] = [];
+  const links: Array<{ title: string; url: string }> = [];
   let match: RegExpExecArray | null;
 
   while ((match = linkRegex.exec(text)) !== null) {
-    urls.push(match[2]);
+    links.push({ title: match[1], url: match[2] });
   }
 
-  return urls;
+  return links;
+}
+
+/**
+ * Strips markdown links from text, replacing [title](url) with just the title.
+ * Used to clean the answer text after extracting URLs separately.
+ */
+function stripMarkdownLinks(text: string): string {
+  return text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 }
 
 /**
  * Executes a search query using the Gemini CLI subprocess.
- * 
- * Spawns `gemini -o stream-json -p "<prompt>" --yolo -m <model>` and parses
- * the NDJSON output to extract the assistant's answer and grounding sources.
- * 
+ *
+ * Spawns `gemini -o text -p "<prompt>" --yolo -m <model>` and parses
+ * the text output to extract the assistant's answer and grounding source URLs.
+ *
+ * Uses `-o text` instead of `-o stream-json` because stream-json strips
+ * grounding redirect URLs from the output. Only text format preserves them.
+ *
  * @param query - The search query to execute
  * @param options - Optional search configuration (model, timeout, abort signal, onUpdate callback)
  * @returns Promise resolving to SearchResult with answer, sources, and optional warning/error
@@ -45,19 +56,18 @@ export async function executeSearch(
   return new Promise((resolve) => {
     // Notify start
     if (onUpdate) {
-      onUpdate('Starting search…');
+      onUpdate('Searching…');
     }
 
-    // Spawn subprocess with stream-json output
+    // Spawn subprocess with text output (not stream-json — see docstring)
     const child: ChildProcess = spawn('gemini', [
-      '-o', 'stream-json',
+      '-o', 'text',
       '-p', prompt,
       '--yolo',
       '-m', model,
     ]);
 
-    let answerText = '';
-    let searchDetected = false;
+    const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     let timeoutId: NodeJS.Timeout | null = null;
 
@@ -94,30 +104,9 @@ export async function executeSearch(
       });
     }
 
-    // Parse stdout line-by-line (NDJSON format)
+    // Collect stdout
     child.stdout?.on('data', (data: Buffer) => {
-      const lines = data.toString().split('\n').filter(line => line.trim() !== '');
-
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-
-          // Track tool_use events to detect google_web_search usage
-          if (event.type === 'tool_use' && event.tool_name === 'google_web_search') {
-            searchDetected = true;
-          }
-
-          // Concatenate assistant message chunks (format: {"type":"message","role":"assistant","content":"...","delta":true})
-          if (event.type === 'message' && event.role === 'assistant' && event.content) {
-            answerText += event.content;
-          }
-
-          // Ignore user, system, init, tool_result, and result events
-        } catch (parseError) {
-          // Skip malformed JSON lines
-          console.warn('Failed to parse NDJSON line:', line);
-        }
-      }
+      stdoutChunks.push(data.toString());
     });
 
     // Capture stderr for error diagnosis
@@ -131,18 +120,14 @@ export async function executeSearch(
 
       if (code !== 0 && code !== null) {
         const stderrOutput = stderrChunks.join('');
-        
+
         // Check for CLI not found (code 127)
         if (code === 127) {
           const error: SearchError = {
             type: 'CLI_NOT_FOUND',
-            message: 'Gemini CLI not found. Please install with: npm install -g @anthropics/gemini-cli',
+            message: 'Gemini CLI not found. Please install with: npm install -g @google/gemini-cli',
           };
-          resolve({
-            answer: '',
-            sources: [],
-            error,
-          });
+          resolve({ answer: '', sources: [], error });
           return;
         }
 
@@ -150,13 +135,9 @@ export async function executeSearch(
         if (stderrOutput.toLowerCase().includes('auth') || stderrOutput.toLowerCase().includes('token')) {
           const error: SearchError = {
             type: 'NOT_AUTHENTICATED',
-            message: 'Gemini CLI authentication failed. Please run: gemini auth login',
+            message: 'Gemini CLI authentication failed. Please run `gemini` to authenticate via browser.',
           };
-          resolve({
-            answer: '',
-            sources: [],
-            error,
-          });
+          resolve({ answer: '', sources: [], error });
           return;
         }
 
@@ -165,36 +146,43 @@ export async function executeSearch(
           type: 'SEARCH_FAILED',
           message: `Gemini CLI exited with code ${code}: ${stderrOutput}`,
         };
-        resolve({
-          answer: '',
-          sources: [],
-          error,
-        });
+        resolve({ answer: '', sources: [], error });
         return;
       }
 
-      // Notify parsing
-      if (onUpdate) {
-        onUpdate('Parsing response…');
+      const fullText = stdoutChunks.join('');
+
+      if (!fullText.trim()) {
+        const error: SearchError = {
+          type: 'SEARCH_FAILED',
+          message: 'Gemini CLI returned empty response',
+        };
+        resolve({ answer: '', sources: [], error });
+        return;
       }
 
-      // Extract markdown links from answer text
-      const extractedUrls = extractMarkdownLinks(answerText);
+      // Extract markdown links (grounding redirect URLs)
+      const links = extractMarkdownLinks(fullText);
+      const urls = links.map(l => l.url);
 
       // Notify URL resolution
-      if (onUpdate && extractedUrls.length > 0) {
-        onUpdate(`Resolving ${extractedUrls.length} source URLs…`);
+      if (onUpdate && urls.length > 0) {
+        onUpdate(`Resolving ${urls.length} source URLs…`);
       }
 
-      // Resolve grounding URLs
-      const groundingUrls = await resolveGroundingUrls(extractedUrls);
+      // Resolve grounding URLs via HEAD requests
+      const groundingUrls = await resolveGroundingUrls(urls);
 
-      // Build warning if no search was detected
+      // Clean the answer text — strip markdown link syntax, keep display text
+      const cleanAnswer = stripMarkdownLinks(fullText);
+
+      // Build warning if no grounding URLs were found
+      // (Gemini may have answered from memory without searching)
       let warning: SearchWarning | undefined;
-      if (!searchDetected) {
+      if (urls.length === 0) {
         warning = {
           type: 'NO_SEARCH',
-          message: 'Gemini answered from memory without using google_web_search tool. Information may be outdated.',
+          message: 'No grounding source URLs found in response. Gemini may have answered from memory — information may not be current.',
         };
       }
 
@@ -204,7 +192,7 @@ export async function executeSearch(
       }
 
       resolve({
-        answer: answerText,
+        answer: cleanAnswer,
         sources: groundingUrls,
         warning,
       });
@@ -213,27 +201,19 @@ export async function executeSearch(
     // Handle spawn errors (e.g., command not found at OS level)
     child.on('error', (err) => {
       if (timeoutId) clearTimeout(timeoutId);
-      
+
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         const error: SearchError = {
           type: 'CLI_NOT_FOUND',
-          message: 'Gemini CLI not found. Please install with: npm install -g @anthropics/gemini-cli',
+          message: 'Gemini CLI not found. Please install with: npm install -g @google/gemini-cli',
         };
-        resolve({
-          answer: '',
-          sources: [],
-          error,
-        });
+        resolve({ answer: '', sources: [], error });
       } else {
         const error: SearchError = {
           type: 'PARSE_ERROR',
           message: `Failed to spawn Gemini CLI: ${err.message}`,
         };
-        resolve({
-          answer: '',
-          sources: [],
-          error,
-        });
+        resolve({ answer: '', sources: [], error });
       }
     });
   });
@@ -255,7 +235,7 @@ if (process.argv[1]?.includes('gemini-cli.ts') && process.argv[2]) {
       if (result.sources.length > 0) {
         console.log('\nSources:');
         result.sources.forEach((source, i) => {
-          console.log(`${i + 1}. ${source}`);
+          console.log(`${i + 1}. ${source.resolved}`);
         });
       }
     })
