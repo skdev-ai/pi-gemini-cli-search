@@ -1,0 +1,35 @@
+{"type":"init","timestamp":"2026-03-16T22:00:00.000Z","session_id":"test-session-1","model":"gemini-2.5-flash"}
+{"type":"message","timestamp":"2026-03-16T22:00:00.001Z","role":"user","content":"Use the google_web_search tool to search for current information about: latest TypeScript version"}
+{"type":"tool_use","timestamp":"2026-03-16T22:00:01.000Z","tool_name":"google_web_search","tool_id":"google_web_search_test_1","parameters":{"query":"latest TypeScript version 2026"}}
+{"type":"tool_result","timestamp":"2026-03-16T22:00:02.000Z","tool_id":"google_web_search_test_1","status":"success","output":"Search results for \"latest TypeScript version 2026\" returned."}
+{"type":"message","timestamp":"2026-03-16T22:00:03.000Z","role":"assistant","content":"The ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.100Z","role":"assistant","content":"latest ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.200Z","role":"assistant","content":"stable ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.300Z","role":"assistant","content":"version ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.400Z","role":"assistant","content":"of ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.500Z","role":"assistant","content":"TypeScript ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.600Z","role":"assistant","content":"is ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.700Z","role":"assistant","content":"5.7.3, ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.800Z","role":"assistant","content":"released ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:03.900Z","role":"assistant","content":"in ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.000Z","role":"assistant","content":"January ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.100Z","role":"assistant","content":"2025. ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.200Z","role":"assistant","content":"You ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.300Z","role":"assistant","content":"can ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.400Z","role":"assistant","content":"find ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.500Z","role":"assistant","content":"more ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.600Z","role":"assistant","content":"information ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.700Z","role":"assistant","content":"on ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.800Z","role":"assistant","content":"the ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:04.900Z","role":"assistant","content":"[TypeScript official website](https://www.typescriptlang.org/) ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.000Z","role":"assistant","content":"and ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.100Z","role":"assistant","content":"the ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.200Z","role":"assistant","content":"[release notes](https://devblogs.microsoft.com/typescript/announcing-typescript-5-7/).","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.300Z","role":"assistant","content":" The ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.400Z","role":"assistant","content":"[npm package](https://www.npmjs.com/package/typescript) ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.500Z","role":"assistant","content":"also ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.600Z","role":"assistant","content":"shows ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.700Z","role":"assistant","content":"the ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.800Z","role":"assistant","content":"current ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:05.900Z","role":"assistant","content":"version.","delta":true}
+{"type":"result","timestamp":"2026-03-16T22:00:06.000Z","status":"success","stats":{"total_tokens":1000,"input_tokens":900,"output_tokens":100,"duration_ms":6000,"tool_calls":1}}

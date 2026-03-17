@@ -1,0 +1,20 @@
+{"type":"init","timestamp":"2026-03-16T22:00:00.000Z","session_id":"test-session-2","model":"gemini-2.5-flash"}
+{"type":"message","timestamp":"2026-03-16T22:00:00.001Z","role":"user","content":"Use the google_web_search tool to search for current information about: what is 2+2"}
+{"type":"message","timestamp":"2026-03-16T22:00:01.000Z","role":"assistant","content":"2 ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.100Z","role":"assistant","content":"+ ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.200Z","role":"assistant","content":"2 ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.300Z","role":"assistant","content":"equals ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.400Z","role":"assistant","content":"4. ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.500Z","role":"assistant","content":"This ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.600Z","role":"assistant","content":"is ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.700Z","role":"assistant","content":"a ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.800Z","role":"assistant","content":"basic ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:01.900Z","role":"assistant","content":"arithmetic ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.000Z","role":"assistant","content":"fact ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.100Z","role":"assistant","content":"that ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.200Z","role":"assistant","content":"doesn't ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.300Z","role":"assistant","content":"require ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.400Z","role":"assistant","content":"searching ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.500Z","role":"assistant","content":"the ","delta":true}
+{"type":"message","timestamp":"2026-03-16T22:00:02.600Z","role":"assistant","content":"web.","delta":true}
+{"type":"result","timestamp":"2026-03-16T22:00:03.000Z","status":"success","stats":{"total_tokens":500,"input_tokens":450,"output_tokens":50,"duration_ms":3000,"tool_calls":0}}
