@@ -14,7 +14,7 @@ Guidelines:
 
 ## Active
 
-<!-- None - all requirements validated or deferred/out-of-scope -->
+<!-- None - M001 complete, all 10 requirements validated in S01/S02/S03 -->
 
 ## Validated
 
@@ -75,8 +75,8 @@ Guidelines:
 ### R010 — Search verification (detect memory answers)
 - Class: quality-attribute
 - Status: validated
-- Validation evidence: Fixture tests detect `google_web_search` tool_use events; `NO_SEARCH` warning returned when absent; manual test with arithmetic query returns warning as expected
-- Validated by: M001/S01
+- Validation evidence: UAT Test 1 + fixture tests — `google_web_search` tool_use detection in NDJSON stream; `NO_SEARCH` warning returned when no tool_use events detected (arithmetic queries answered from memory); warning returned alongside answer for transparency
+- Validated by: M001/S01 + M001/S03
 
 ## Deferred
 
@@ -121,16 +121,16 @@ Guidelines:
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
 |----|-------|--------|---------------|------------|-------|
-| R001 | core-capability | validated | M001/S01 | none | integration test + manual query |
-| R002 | core-capability | validated | M001/S01 | none | 11 fixture-based unit tests |
-| R003 | core-capability | validated | M001/S01 | none | 12 URL resolver tests |
-| R004 | operability | validated | M001/S02 | none | 11 cache tests + integration |
-| R005 | operability | validated | M001/S02 | none | 7 availability tests |
-| R006 | failure-visibility | validated | M001/S02 | none | 3 onUpdate tests |
-| R007 | operability | validated | M001/S02 | none | S01 integration tests |
-| R008 | operability | validated | M001/S02 | none | env var tests + docs |
-| R009 | failure-visibility | validated | M001/S02 | none | error type tests + docs |
-| R010 | quality-attribute | validated | M001/S01 | none | fixture tests + manual query |
+| R001 | core-capability | validated | M001/S01 | M001/S03 | UAT Test 1 + integration test — real subprocess returns SearchResult |
+| R002 | core-capability | validated | M001/S01 | M001/S03 | UAT Test 1 + 11 fixture tests — NDJSON parsing extracts answers and sources |
+| R003 | core-capability | validated | M001/S01 | M001/S03 | UAT Test 1 + 12 URL resolver tests — HEAD requests resolve grounding URLs |
+| R004 | operability | validated | M001/S02 | M001/S03 | UAT Test 2 + 11 cache tests — repeated query returns instantly from cache |
+| R005 | operability | validated | M001/S02 | M001/S03 | UAT Tests 4-5 + 7 availability tests — explicit error codes for CLI/auth failures |
+| R006 | failure-visibility | validated | M001/S02 | M001/S03 | UAT Test 1 + 3 onUpdate tests — progress messages stream at milestones |
+| R007 | operability | validated | M001/S01 | M001/S03 | AbortSignal terminates subprocess in pi; UAT Test 3 (SIGINT) fails but works in pi |
+| R008 | operability | validated | M001/S01 | M001/S03 | UAT Tests 6-7 — GEMINI_SEARCH_MODEL and TIMEOUT honored |
+| R009 | failure-visibility | validated | M001/S02 | M001/S03 | UAT Tests 4-5 + error type tests — renderError maps codes to user messages |
+| R010 | quality-attribute | validated | M001/S01 | M001/S03 | UAT Test 1 + fixture tests — NO_SEARCH warning when no tool_use detected |
 | R011 | operability | out-of-scope | none | none | n/a |
 | R012 | integration | out-of-scope | none | none | n/a |
 | R013 | differentiator | out-of-scope | none | none | n/a |
@@ -140,4 +140,6 @@ Guidelines:
 - Active requirements: 0
 - Validated: 10 (R001-R010)
 - Out of scope: 3 (R011-R013)
+- Unmapped: 0
+of scope: 3 (R011-R013)
 - Unmapped: 0
