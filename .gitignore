@@ -11,6 +11,10 @@
 .gsd/DISCUSSION-MANIFEST.json
 .gsd/milestones/**/*-CONTINUE.md
 .gsd/milestones/**/continue.md
+# Local tooling (not part of the project)
+.gsd/extensions/
+.gsd/KNOWLEDGE.md
+.gsd/preferences.md
 .DS_Store
 Thumbs.db
 *.swp
