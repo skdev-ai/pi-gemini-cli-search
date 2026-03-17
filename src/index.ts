@@ -45,10 +45,13 @@ function renderAnswer(result: SearchResult): string {
     lines.push('');
     lines.push('**Sources:**');
     result.sources.forEach((source, index) => {
-      const resolvedUrl = source.resolvedSuccessfully 
-        ? source.resolved 
-        : `${source.original} (failed to resolve)`;
-      lines.push(`${index + 1}. ${resolvedUrl}`);
+      if (source.resolvedSuccessfully) {
+        lines.push(`${index + 1}. ${source.resolved}`);
+      } else {
+        // Show title from extraction instead of opaque grounding redirect
+        const title = source.title || 'Unknown source';
+        lines.push(`${index + 1}. ${title} (URL could not be resolved)`);
+      }
     });
   }
   

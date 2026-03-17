@@ -56,14 +56,22 @@ function extractLinks(text: string): Array<{ title: string; url: string }> {
 }
 
 /**
- * Strips link patterns from text to clean the answer.
- * Removes markdown links, reference-style links, and bare URLs from source sections.
+ * Strips the answer text: removes links, source sections, and trailing whitespace.
+ * The extension renders its own sources section with resolved URLs.
  */
 function stripLinks(text: string): string {
   // Remove markdown links, keep title
   let cleaned = text.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, '$1');
   // Remove reference-style URLs: (https://...)
   cleaned = cleaned.replace(/\(https?:\/\/[^)]+\)/g, '');
+  // Remove grounding redirect URLs on their own line
+  cleaned = cleaned.replace(/^\s*https:\/\/vertexaisearch\.cloud\.google\.com\/[^\s]+\s*$/gm, '');
+  // Remove bare https URLs on their own line (leftover from source sections)
+  cleaned = cleaned.replace(/^\s*https?:\/\/[^\s]+\s*$/gm, '');
+  // Remove "Sources:" section and everything after it (we render our own)
+  cleaned = cleaned.replace(/\n*(?:Sources|References):\s*[\s\S]*$/i, '');
+  // Clean up trailing whitespace
+  cleaned = cleaned.trimEnd();
   return cleaned;
 }
 
@@ -200,25 +208,23 @@ export async function executeSearch(
         return;
       }
 
-      // Extract markdown links (grounding redirect URLs)
+      // Extract links from response text
       const links = extractLinks(fullText);
-      const urls = links.map(l => l.url);
 
       // Notify URL resolution
-      if (onUpdate && urls.length > 0) {
-        onUpdate(`Resolving ${urls.length} source URLs…`);
+      if (onUpdate && links.length > 0) {
+        onUpdate(`Resolving ${links.length} source URLs…`);
       }
 
-      // Resolve grounding URLs via HEAD requests
-      const groundingUrls = await resolveGroundingUrls(urls);
+      // Resolve grounding URLs via HEAD requests (passes title + url pairs)
+      const groundingUrls = await resolveGroundingUrls(links);
 
-      // Clean the answer text — strip markdown link syntax, keep display text
+      // Clean the answer text — strip links and source sections
       const cleanAnswer = stripLinks(fullText);
 
-      // Build warning if no grounding URLs were found
-      // (Gemini may have answered from memory without searching)
+      // Build warning if no source URLs were found
       let warning: SearchWarning | undefined;
-      if (urls.length === 0) {
+      if (links.length === 0) {
         warning = {
           type: 'NO_SEARCH',
           message: 'No grounding source URLs found in response. Gemini may have answered from memory — information may not be current.',

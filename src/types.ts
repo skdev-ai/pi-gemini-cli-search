@@ -9,9 +9,11 @@
  * and resolved is the actual destination URL.
  */
 export interface GroundingUrl {
-  /** The original redirect URL (e.g., vertexaisearch.cloud.google.com/grounding-api-redirect/...) */
+  /** Display title extracted from the link text (e.g., "kraken.com") */
+  title: string;
+  /** The original URL from Gemini's response (may be a grounding redirect or direct URL) */
   original: string;
-  /** The resolved actual URL after following the redirect */
+  /** The resolved actual URL after following any redirect */
   resolved: string;
   /** Whether the URL was successfully resolved */
   resolvedSuccessfully: boolean;
