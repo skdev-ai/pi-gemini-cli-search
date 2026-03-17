@@ -48,9 +48,8 @@ function renderAnswer(result: SearchResult): string {
       if (source.resolvedSuccessfully) {
         lines.push(`${index + 1}. ${source.resolved}`);
       } else {
-        // Show title from extraction instead of opaque grounding redirect
-        const title = source.title || 'Unknown source';
-        lines.push(`${index + 1}. ${title} (URL could not be resolved)`);
+        // Resolution failed — return the original URL (grounding redirects still work in browsers)
+        lines.push(`${index + 1}. ${source.original}`);
       }
     });
   }
