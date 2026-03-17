@@ -100,7 +100,7 @@ export async function executeSearch(
   // Build prompt using CCS template with explicit search instruction
   const prompt = `Search the web for: ${query}
 
-Use the google_web_search tool to find current information.
+Use the google_web_search tool to find current information. Include source URLs in your response.
 
 Instructions:
 1. Search the web for current, up-to-date information
