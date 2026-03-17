@@ -123,7 +123,9 @@ Instructions:
       '-p', prompt,
       '--yolo',
       '-m', model,
-    ]);
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
