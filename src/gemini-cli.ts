@@ -98,18 +98,7 @@ export async function executeSearch(
   const onUpdate = options?.onUpdate;
 
   // Build prompt using CCS template with explicit search instruction
-  const prompt = `Search the web for: ${query}
-
-Use the google_web_search tool to find current information. Include source URLs in your response.
-
-Instructions:
-1. Search the web for current, up-to-date information
-2. Provide a comprehensive summary of the search results
-3. Include relevant URLs/sources when available
-4. Be concise but thorough - prioritize key facts
-5. Focus on factual information from reliable sources
-6. If results conflict, note the discrepancy
-7. Format output clearly with sections if the topic is complex`;
+  const prompt = `Use the google_web_search tool to search the web for: ${query}. Include source URLs.`;
 
   return new Promise((resolve) => {
     // Notify start
