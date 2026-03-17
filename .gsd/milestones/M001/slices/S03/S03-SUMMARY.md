@@ -4,6 +4,34 @@ parent: M001
 milestone: M001
 title: Verification & integration
 status: complete
+provides:
+  - UAT validation evidence for R001-R010
+  - S03-SUMMARY.md with complete validation matrix
+  - S03-UAT.md with executable test script
+requires:
+  - slice: S02
+    provides: availability.ts, cache.ts, error handling, progress streaming
+affects:
+  - M002 (future milestones building on verified extension)
+key_files:
+  - .gsd/milestones/M001/slices/S03/S03-SUMMARY.md
+  - .gsd/milestones/M001/slices/S03/S03-UAT.md
+  - .gsd/milestones/M001/slices/S03/S03-UAT-RESULTS.md
+key_decisions:
+  - Used time-sensitive queries (weather) instead of static knowledge to force search tool usage
+  - Documented test harness limitations separately from extension defects
+patterns_established:
+  - Standalone test runner for extension verification
+  - Structured UAT results format with pass/fail + root cause analysis
+  - UAT + unit test evidence linked in REQUIREMENTS.md validation
+observability_surfaces:
+  - Console logs: cache hits (`Cache hit for query: <query>`), availability failures (`Tool unavailable: <error_code>`)
+  - Progress messages: milestone-based updates ("Starting search…", "Parsing response…", "Resolving X source URLs…", "Complete")
+  - Error codes: CLI_NOT_FOUND, NOT_AUTHENTICATED, TIMEOUT, PARSE_ERROR, SEARCH_FAILED
+  - Structured diagnostics: S03-UAT-RESULTS.md with detailed failure analysis
+duration: 1h 15m
+verification_result: passed
+completed_at: 2026-03-17
 ---
 
 # S03: Verification & Integration — Summary

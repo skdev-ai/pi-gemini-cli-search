@@ -63,7 +63,7 @@ This milestone is complete only when all are true:
 - [x] **S02: Operability & resilience** `risk:medium` `depends:[S01]`
   > After this: Extension handles errors gracefully, caches repeated queries, detects availability, streams progress, and supports cancellation.
 
-- [ ] **S03: Verification & integration** `risk:low` `depends:[S02]`
+- [x] **S03: Verification & integration** `risk:low` `depends:[S02]`
   > After this: All requirements verified via integration tests and manual UAT; extension ready for production use.
 
 ## Boundary Map
