@@ -5,7 +5,9 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "npx tsx src/run-tests.ts",
+    "test": "npm run test:vitest && npm run test:native",
+    "test:vitest": "npx vitest run",
+    "test:native": "npx tsx src/run-tests.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -19,7 +21,8 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.48"

@@ -2,7 +2,7 @@ import { run } from 'node:test';
 
 import './url-resolver.test.ts';
 import './gemini-cli.test.ts';
-import './availability.test.ts';
+// Note: availability.test.ts now uses Vitest - run with 'npm run test:vitest'
 import './index.test.ts';
 import './cache.test.ts';
 import './types.test.ts';
