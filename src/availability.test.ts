@@ -185,10 +185,10 @@ describe('checkA2ARunning', () => {
       }),
       end: vi.fn()
     };
-    vi.mocked(http.get).mockImplementation((url, cb) => {
+    vi.mocked(http.get).mockImplementation(((_url: string, cb: any) => {
       setImmediate(() => cb({ statusCode: 200 }));
-      return mockReq as any;
-    });
+      return mockReq;
+    }) as any);
 
     const result = await checkA2ARunning();
     expect(result).toBe(true);
@@ -214,7 +214,7 @@ describe('checkA2ARunning', () => {
   it('returns false when request times out', async () => {
     const mockReq = {
       destroy: vi.fn(),
-      setTimeout: vi.fn(function(ms: number, cb: any) {
+      setTimeout: vi.fn(function(_ms: number, cb: any) {
         setImmediate(cb);
         return mockReq;
       }),
