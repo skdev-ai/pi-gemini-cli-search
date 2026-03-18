@@ -6,6 +6,22 @@ import { getA2APath, getA2APackageRoot } from './a2a-path.js';
 import { checkA2AInstalled, checkA2APatched } from './availability.js';
 
 /**
+ * Custom error class for A2A installation failures.
+ * Includes phase information and remediation hints for structured error handling.
+ */
+export class A2AInstallationError extends Error {
+  phase: string;
+  remediation: string;
+  
+  constructor(message: string, phase: string, remediation: string) {
+    super(message);
+    this.name = 'A2AInstallationError';
+    this.phase = phase;
+    this.remediation = remediation;
+  }
+}
+
+/**
  * Context interface for the installer.
  * Provides UI notification and confirmation capabilities.
  */
@@ -70,14 +86,22 @@ function preCheck(ctx: InstallerContext): boolean {
   try {
     execSync('which gemini', { stdio: 'pipe' });
   } catch (error) {
-    throw new Error('Gemini CLI not installed. Run: npm install -g @google/gemini-cli');
+    throw new A2AInstallationError(
+      'Gemini CLI not installed. Run: npm install -g @google/gemini-cli',
+      'prereq',
+      'Run: npm install -g @google/gemini-cli'
+    );
   }
   
   // Check 2: OAuth credentials
   const homeDir = homedir();
   const oauthPath = join(homeDir, '.gemini', 'oauth_creds.json');
   if (!existsSync(oauthPath)) {
-    throw new Error('Not authenticated. Run: gemini auth login');
+    throw new A2AInstallationError(
+      'Not authenticated. Run: gemini auth login',
+      'prereq',
+      'Run: gemini auth login'
+    );
   }
   
   // Check 3: Already installed and patched?
@@ -144,14 +168,26 @@ function installA2ABinary(ctx: InstallerContext): void {
     const errorMessage = error.message || String(error);
     
     if (errorMessage.includes('EACCES') || errorMessage.includes('permission denied')) {
-      throw new Error('Permission denied. Run with sudo or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-global-packages');
+      throw new A2AInstallationError(
+        'Permission denied during npm install',
+        'install',
+        'Run with sudo or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-global-packages'
+      );
     }
     
     if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('network')) {
-      throw new Error('Network error. Check your internet connection and retry.');
+      throw new A2AInstallationError(
+        'Network error during installation',
+        'install',
+        'Check your internet connection and retry'
+      );
     }
     
-    throw new Error(`Installation failed: ${errorMessage}`);
+    throw new A2AInstallationError(
+      `Installation failed: ${errorMessage}`,
+      'install',
+      'Check npm logs and retry, or run manually: npm install -g @google/gemini-cli-a2a-server@0.34.0'
+    );
   }
 }
 
@@ -185,7 +221,11 @@ ${JSON.stringify(RESTRICTED_WORKSPACE_SETTINGS, null, 2)}
     ctx.ui.notify('Restricted workspace created');
   } catch (error: any) {
     const errorMessage = error.message || String(error);
-    throw new Error(`Failed to create restricted workspace: ${errorMessage}`);
+    throw new A2AInstallationError(
+      `Failed to create restricted workspace: ${errorMessage}`,
+      'workspace',
+      'Check file permissions and disk space, or create directory manually'
+    );
   }
 }
 
@@ -208,7 +248,11 @@ ${JSON.stringify(RESTRICTED_WORKSPACE_SETTINGS, null, 2)}
 function applyPatches(ctx: InstallerContext): void {
   const packageRoot = getA2APackageRoot();
   if (!packageRoot) {
-    throw new Error('A2A server package not found after installation');
+    throw new A2AInstallationError(
+      'A2A server package not found after installation',
+      'patch',
+      'Verify npm install completed successfully and check PATH'
+    );
   }
   
   const a2aPath = join(packageRoot, 'dist', 'a2a-server.mjs');
@@ -274,7 +318,21 @@ function applyPatches(ctx: InstallerContext): void {
     }
     
     const errorMessage = error.message || String(error);
-    throw new Error(`Patch application failed: ${errorMessage}`);
+    
+    // Don't wrap patch target errors - they need specific remediation
+    if (errorMessage.includes('Patch target not found')) {
+      throw new A2AInstallationError(
+        errorMessage,
+        'patch',
+        'A2A server version may have changed. Check installed version or restore from backup'
+      );
+    }
+    
+    throw new A2AInstallationError(
+      `Patch application failed: ${errorMessage}`,
+      'patch',
+      'Check file permissions or run manual patching'
+    );
   }
 }
 
@@ -296,7 +354,11 @@ function applyPatches(ctx: InstallerContext): void {
 function verifyPatches(ctx: InstallerContext): void {
   const packageRoot = getA2APackageRoot();
   if (!packageRoot) {
-    throw new Error('A2A server package not available for verification');
+    throw new A2AInstallationError(
+      'A2A server package not available for verification',
+      'verify',
+      'Verify npm install completed successfully'
+    );
   }
   
   const a2aPath = join(packageRoot, 'dist', 'a2a-server.mjs');
@@ -333,12 +395,24 @@ function verifyPatches(ctx: InstallerContext): void {
     
     ctx.ui.notify('Patches applied and verified successfully');
   } catch (error: any) {
+    if (error instanceof A2AInstallationError) {
+      throw error; // Re-throw A2AInstallationError as-is
+    }
+    
     if (error.message.includes('Patch verification failed')) {
-      throw error; // Re-throw verification errors
+      throw new A2AInstallationError(
+        error.message,
+        'verify',
+        'Backup restored. Check file permissions or run manual installation'
+      );
     }
     
     const errorMessage = error.message || String(error);
-    throw new Error(`Verification failed: ${errorMessage}. Check file permissions or run manually.`);
+    throw new A2AInstallationError(
+      `Verification failed: ${errorMessage}. Check file permissions or run manually.`,
+      'verify',
+      'Check file permissions and retry, or inspect backup files for debugging'
+    );
   }
 }
 
