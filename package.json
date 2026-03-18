@@ -25,6 +25,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
+    "eventsource-parser": "3.0.6",
     "@sinclair/typebox": "^0.34.48"
   }
 }

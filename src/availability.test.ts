@@ -8,21 +8,16 @@ vi.mock('./a2a-path.js', () => ({
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
-  existsSync: vi.fn(() => true)  // Default: credential file exists
+  existsSync: vi.fn(() => true)  // Default: returns true for both credential file and gemini binary
 }));
 
 vi.mock('node:http', () => ({
   get: vi.fn()
 }));
 
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(() => Buffer.from('/usr/bin/gemini'))  // Default: CLI exists
-}));
-
 import { getA2APath } from './a2a-path.js';
 import { readFileSync, existsSync } from 'node:fs';
 import * as http from 'node:http';
-import { execSync } from 'node:child_process';
 import {
   checkCliBinary,
   checkCredentialFile,
@@ -35,7 +30,7 @@ import {
 
 describe('checkCliBinary', () => {
   it('returns true when gemini CLI is in PATH', () => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/gemini'));
+    vi.mocked(existsSync).mockImplementation((path) => path.toString().endsWith('/gemini') || path.toString().includes('oauth_creds.json'));
     const result = checkCliBinary();
     expect(result).toBe(true);
   });
@@ -66,7 +61,7 @@ describe('checkAvailability', () => {
   });
 
   it('returns available: true when CLI and credentials are present', () => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/gemini'));
+    vi.mocked(existsSync).mockImplementation((path) => path.toString().endsWith('/gemini') || path.toString().includes('oauth_creds.json'));
     vi.mocked(existsSync).mockReturnValue(true);
     
     const result = checkAvailability();
@@ -74,8 +69,17 @@ describe('checkAvailability', () => {
   });
 
   it('returns CLI_NOT_FOUND when gemini CLI is missing', () => {
-    vi.mocked(execSync).mockImplementation(() => {
-      throw new Error('Command not found');
+    // Mock existsSync to return false for all paths (gemini binary not found)
+    vi.mocked(existsSync).mockImplementation((path) => {
+      const pathStr = path.toString();
+      // Return true only for credential file, false for gemini binary
+      if (pathStr.includes('oauth_creds.json')) {
+        return true;
+      }
+      if (pathStr.endsWith('/gemini')) {
+        return false;
+      }
+      return true;
     });
     
     const result = checkAvailability();
@@ -84,8 +88,17 @@ describe('checkAvailability', () => {
   });
 
   it('returns NOT_AUTHENTICATED when credentials are missing', () => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/gemini'));
-    vi.mocked(existsSync).mockReturnValue(false);
+    // Mock existsSync to return true for gemini binary but false for credentials
+    vi.mocked(existsSync).mockImplementation((path) => {
+      const pathStr = path.toString();
+      if (pathStr.endsWith('/gemini')) {
+        return true;
+      }
+      if (pathStr.includes('oauth_creds.json')) {
+        return false;
+      }
+      return true;
+    });
     
     const result = checkAvailability();
     expect(result.available).toBe(false);
@@ -93,9 +106,8 @@ describe('checkAvailability', () => {
   });
 
   it('checks CLI before credentials (CLI_NOT_FOUND takes precedence)', () => {
-    vi.mocked(execSync).mockImplementation(() => {
-      throw new Error('Command not found');
-    });
+    // Mock existsSync to return false for both CLI and credentials
+    // CLI check happens first, so CLI_NOT_FOUND should be returned
     vi.mocked(existsSync).mockReturnValue(false);
     
     const result = checkAvailability();
@@ -109,7 +121,7 @@ describe('isAvailable', () => {
   });
 
   it('returns boolean matching checkAvailability().available', () => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/gemini'));
+    vi.mocked(existsSync).mockImplementation((path) => path.toString().endsWith('/gemini') || path.toString().includes('oauth_creds.json'));
     vi.mocked(existsSync).mockReturnValue(true);
     
     const isAvail = isAvailable();
@@ -232,7 +244,7 @@ describe('checkAvailability with A2A', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock CLI and credentials as available
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/gemini'));
+    vi.mocked(existsSync).mockImplementation((path) => path.toString().endsWith('/gemini') || path.toString().includes('oauth_creds.json'));
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(getA2APath).mockReturnValue(null);
     vi.mocked(readFileSync).mockReturnValue('');

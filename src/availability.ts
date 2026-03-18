@@ -1,19 +1,28 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
 import * as http from 'node:http';
 import { getA2APath } from './a2a-path.js';
 
 /**
  * Checks if the Gemini CLI binary is available in PATH.
- * Uses `which gemini` to verify presence.
+ * Synchronously searches PATH directories for the gemini executable.
+ * Uses existsSync instead of execSync('which gemini') to avoid blocking the event loop.
  */
 export function checkCliBinary(): boolean {
-  try {
-    execSync('which gemini', { stdio: 'ignore' });
-    return true;
-  } catch {
+  const pathEnv = process.env.PATH;
+  if (!pathEnv) {
     return false;
   }
+  
+  // Split PATH by colon and search for gemini binary
+  const paths = pathEnv.split(':');
+  for (const dir of paths) {
+    const geminiPath = `${dir}/gemini`;
+    if (existsSync(geminiPath)) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**
@@ -99,14 +108,14 @@ export function checkA2APatched(filePath: string): boolean {
 
 /**
  * Checks if the A2A server is running and responding to health checks.
- * Makes an HTTP GET request to the /health endpoint with a 500ms timeout.
+ * Makes an HTTP GET request to the /.well-known/agent-card.json endpoint (A2A spec standard) with a 500ms timeout.
  * 
  * @param port - Port number to check (default: 41242)
  * @returns Promise resolving to true if server responds with 200 OK, false otherwise
  */
 export function checkA2ARunning(port: number = 41242): Promise<boolean> {
   return new Promise((resolve) => {
-    const url = `http://localhost:${port}/health`;
+    const url = `http://localhost:${port}/.well-known/agent-card.json`;
     
     const req = http.get(url, (res) => {
       if (res.statusCode === 200) {
