@@ -105,7 +105,6 @@ const currentTask = wrapper.task;
 
     it('restores from backup on verification failure', () => {
       const originalContent = 'original unpatched content';
-      const badPatchedContent = 'badly patched content without markers';
       
       writeFileSync(testFile, originalContent, 'utf-8');
       writeFileSync(backupFile, originalContent, 'utf-8');

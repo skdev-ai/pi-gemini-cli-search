@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock all dependencies before importing the module under test
 vi.mock('./a2a-path.js', () => ({
   getA2APath: vi.fn(() => null),
+  getA2APackageRoot: vi.fn(() => null),
   isA2APathResolved: vi.fn()
 }));
 
@@ -15,7 +16,7 @@ vi.mock('node:http', () => ({
   get: vi.fn()
 }));
 
-import { getA2APath } from './a2a-path.js';
+import { getA2APath, getA2APackageRoot } from './a2a-path.js';
 import { readFileSync, existsSync } from 'node:fs';
 import * as http from 'node:http';
 import {
@@ -247,11 +248,13 @@ describe('checkAvailability with A2A', () => {
     vi.mocked(existsSync).mockImplementation((path) => path.toString().endsWith('/gemini') || path.toString().includes('oauth_creds.json'));
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(getA2APath).mockReturnValue(null);
+    vi.mocked(getA2APackageRoot).mockReturnValue(null);
     vi.mocked(readFileSync).mockReturnValue('');
   });
 
   it('includes a2a.installed field in result when CLI and credentials are available', () => {
     vi.mocked(getA2APath).mockReturnValue('/usr/local/bin/gemini-cli-a2a-server');
+    vi.mocked(getA2APackageRoot).mockReturnValue('/usr/local/lib/node_modules/@google/gemini-cli-a2a-server');
     const result = checkAvailability();
     expect(result.a2a).toBeDefined();
     expect(result.a2a?.installed).toBe(true);
@@ -259,6 +262,7 @@ describe('checkAvailability with A2A', () => {
 
   it('includes a2a.patched field in result when installed', () => {
     vi.mocked(getA2APath).mockReturnValue('/usr/local/bin/gemini-cli-a2a-server');
+    vi.mocked(getA2APackageRoot).mockReturnValue('/usr/local/lib/node_modules/@google/gemini-cli-a2a-server');
     vi.mocked(readFileSync).mockReturnValue('const _requestedModel = "test";');
     
     const result = checkAvailability();
@@ -271,8 +275,10 @@ describe('checkAvailability with A2A', () => {
   });
 
   it('calls readFileSync() with resolved path when A2A is installed', () => {
-    const testPath = '/usr/local/bin/gemini-cli-a2a-server';
-    vi.mocked(getA2APath).mockReturnValue(testPath);
+    const testPackageRoot = '/usr/local/lib/node_modules/@google/gemini-cli-a2a-server';
+    const testPath = `${testPackageRoot}/dist/a2a-server.mjs`;
+    vi.mocked(getA2APath).mockReturnValue('/usr/local/bin/gemini-cli-a2a-server');
+    vi.mocked(getA2APackageRoot).mockReturnValue(testPackageRoot);
     vi.mocked(readFileSync).mockReturnValue('const _requestedModel = "test";');
     
     checkAvailability();

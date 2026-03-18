@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { getA2APath } from './a2a-path.js';
+import { getA2APath, getA2APackageRoot } from './a2a-path.js';
 import { checkA2AInstalled, checkA2APatched } from './availability.js';
 
 /**
@@ -206,10 +206,12 @@ ${JSON.stringify(RESTRICTED_WORKSPACE_SETTINGS, null, 2)}
  * @throws Error if patching fails or targets not found
  */
 function applyPatches(ctx: InstallerContext): void {
-  const a2aPath = getA2APath();
-  if (!a2aPath) {
-    throw new Error('A2A server not found after installation');
+  const packageRoot = getA2APackageRoot();
+  if (!packageRoot) {
+    throw new Error('A2A server package not found after installation');
   }
+  
+  const a2aPath = join(packageRoot, 'dist', 'a2a-server.mjs');
   
   ctx.ui.notify('Applying patches...');
   
@@ -253,13 +255,8 @@ function applyPatches(ctx: InstallerContext): void {
       throw new Error('Patch target not found: currentTask assignment');
     }
     
-    const modelSelectionCode = `
-    // [_requestedModel PATCH] Support model selection via _requestedModel property
-    const requestedModel = wrapper._requestedModel || currentTask?._requestedModel;
-    if (requestedModel) {
-      // Use requested model if specified
-    }
-`;
+    // Correct patch: read _model from message metadata and call setModel()
+    const modelSelectionCode = ` const _requestedModel = userMessage.metadata?._model; if (_requestedModel && typeof _requestedModel === "string") { currentTask.config.setModel(_requestedModel); }`;
     
     content = content.replace(
       injectionTarget,
@@ -297,10 +294,12 @@ function applyPatches(ctx: InstallerContext): void {
  * @throws Error with specific failure reason and remediation hint
  */
 function verifyPatches(ctx: InstallerContext): void {
-  const a2aPath = getA2APath();
-  if (!a2aPath) {
-    throw new Error('A2A server path not available for verification');
+  const packageRoot = getA2APackageRoot();
+  if (!packageRoot) {
+    throw new Error('A2A server package not available for verification');
   }
+  
+  const a2aPath = join(packageRoot, 'dist', 'a2a-server.mjs');
   
   try {
     const content = readFileSync(a2aPath, 'utf-8');

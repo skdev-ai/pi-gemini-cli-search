@@ -12,10 +12,15 @@ interface MockToolConfig {
 
 class MockExtensionAPI {
   registeredTools: Map<string, MockToolConfig> = new Map();
+  registeredCommands: Map<string, Function> = new Map();
   eventHandlers: Map<string, Function[]> = new Map();
 
   registerTool(config: MockToolConfig & { name: string }): void {
     this.registeredTools.set(config.name, config as MockToolConfig);
+  }
+
+  registerCommand(name: string, handler: Function): void {
+    this.registeredCommands.set(name, handler);
   }
 
   on(event: string, handler: Function): void {

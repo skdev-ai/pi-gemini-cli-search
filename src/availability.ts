@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as http from 'node:http';
-import { getA2APath } from './a2a-path.js';
+import { getA2APath, getA2APackageRoot } from './a2a-path.js';
 
 /**
  * Checks if the Gemini CLI binary is available in PATH.
@@ -68,7 +69,9 @@ export function checkAvailability(): { available: boolean; reason?: string; a2a?
 
   // Check A2A availability (installed and patched)
   const a2aInstalled = checkA2AInstalled();
-  const a2aPatched = a2aInstalled ? checkA2APatched(getA2APath()!) : false;
+  const packageRoot = a2aInstalled ? getA2APackageRoot() : null;
+  const a2aBundlePath = packageRoot ? join(packageRoot, 'dist', 'a2a-server.mjs') : null;
+  const a2aPatched = a2aBundlePath ? checkA2APatched(a2aBundlePath) : false;
 
   return { 
     available: true,

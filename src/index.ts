@@ -4,6 +4,7 @@ import { executeSearch } from "./gemini-cli.js";
 import type { SearchResult } from "./types.js";
 import { get, set, clear as clearCache } from "./cache.js";
 import { checkAvailability } from "./availability.js";
+import { installA2AServer } from "./a2a-installer.js";
 
 /**
  * Gemini CLI Search Extension
@@ -158,6 +159,32 @@ export default function (pi: ExtensionAPI) {
         content: [{ type: 'text', text: renderAnswer(result) }],
       };
     },
+  });
+  
+  // Register /gemini install-a2a command (R013)
+  pi.registerCommand('/gemini install-a2a', async (ctx: any) => {
+    try {
+      await installA2AServer({
+        ui: {
+          notify: (message) => ctx.ui.notify(message),
+          confirm: async (message, options) => {
+            const result = await ctx.ui.confirm(message, {
+              title: options?.title,
+              detail: options?.detail,
+            });
+            return result;
+          },
+        },
+      });
+      ctx.ui.notify('A2A installation complete! Run `/gemini status` to verify.', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Extract phase from error if available (prereq/install/workspace/patch/verify)
+      const phase = (error as any)?.phase || 'unknown';
+      const remediation = (error as any)?.remediation || 'Check logs and retry';
+      ctx.ui.notify(`Installation failed (${phase}): ${message}. ${remediation}`, 'error');
+      console.error('[A2A Install]', phase, error);
+    }
   });
   
   // Notify on session start
