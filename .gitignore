@@ -15,7 +15,7 @@
 .gsd/extensions/
 .gsd/KNOWLEDGE.md
 .gsd/preferences.md
-RESEARCH-gemini-cli-search-extension.md
+RESEARCH-*.md
 .DS_Store
 Thumbs.db
 *.swp
