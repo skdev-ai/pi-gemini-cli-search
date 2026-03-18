@@ -15,7 +15,6 @@
 .gsd/extensions/
 .gsd/KNOWLEDGE.md
 .gsd/preferences.md
-RESEARCH-*.md
 .DS_Store
 Thumbs.db
 *.swp
@@ -41,3 +40,6 @@ vendor/
 coverage/
 .cache/
 tmp/
+
+# ── GSD (local-only, commit_docs: false) ──
+.gsd/
