@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
 // We'll test the actual behavior since Node.js test doesn't support easy mocking

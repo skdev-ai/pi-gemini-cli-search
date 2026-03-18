@@ -83,6 +83,7 @@ function renderError(result: SearchResult): string {
 
 export default function (pi: ExtensionAPI) {
   // Register the gemini_cli_search tool
+  // @ts-expect-error - ExtensionAPI type not available at compile time, but runtime signature accepts single object
   pi.registerTool({
     name: 'gemini_cli_search',
     label: 'Gemini CLI Search',
