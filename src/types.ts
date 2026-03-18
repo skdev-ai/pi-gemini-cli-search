@@ -41,7 +41,22 @@ export interface SearchError {
     | 'NOT_AUTHENTICATED'
     | 'TIMEOUT'
     | 'PARSE_ERROR'
-    | 'SEARCH_FAILED';
+    | 'SEARCH_FAILED'
+    // A2A server lifecycle errors
+    /** Detected when gemini-cli-a2a package is not installed via npm list */
+    | 'A2A_NOT_INSTALLED'
+    /** Detected when a2a.ts patch is missing from gemini-cli-core */
+    | 'A2A_NOT_PATCHED'
+    /** Detected when server doesn't emit ready marker within 10s timeout */
+    | 'A2A_STARTUP_TIMEOUT'
+    /** Detected when stderr contains 'FatalAuthenticationError' or 'OAuth token expired' */
+    | 'A2A_AUTH_EXPIRED'
+    /** Detected when headless mode flag is missing from startup command */
+    | 'A2A_HEADLESS_MISSING'
+    /** Detected when child process exits with non-zero code during runtime */
+    | 'A2A_CRASHED'
+    /** Detected when server is intentionally stopped via stopServer() */
+    | 'A2A_STOPPED';
   /** Human-readable error message */
   message: string;
 }
@@ -74,6 +89,29 @@ export interface SearchOptions {
   signal?: AbortSignal;
   /** Optional callback for progress updates during search */
   onUpdate?: (message: string) => void;
+}
+
+/**
+ * A2A server lifecycle state returned by getServerState().
+ * Provides complete diagnostic visibility into server health and history.
+ */
+export interface A2AServerState {
+  /** Current server status in lifecycle state machine */
+  status: 'idle' | 'starting' | 'running' | 'stopped' | 'error';
+  /** Port number the server is listening on (41242 default) */
+  port: number;
+  /** Uptime in milliseconds since server started, null if not running */
+  uptime: number | null;
+  /** Total number of searches processed since session start */
+  searchCount: number;
+  /** Most recent error encountered, null if no errors */
+  lastError: SearchError | null;
+  /** Exit code from child process, null if still running or not started */
+  exitCode: number | null;
+  /** Ring buffer of last 50 stdout lines for debugging */
+  stdoutBuffer: string[];
+  /** Ring buffer of last 50 stderr lines for debugging */
+  stderrBuffer: string[];
 }
 
 /**
