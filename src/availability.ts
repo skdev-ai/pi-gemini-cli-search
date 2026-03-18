@@ -1,5 +1,7 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import * as http from 'node:http';
+import { getA2APath } from './a2a-path.js';
 
 /**
  * Checks if the Gemini CLI binary is available in PATH.
@@ -38,7 +40,7 @@ export function checkCredentialFile(): boolean {
  * 
  * @returns Object with `available` boolean and optional `reason` string
  */
-export function checkAvailability(): { available: boolean; reason?: string } {
+export function checkAvailability(): { available: boolean; reason?: string; a2a?: { installed: boolean; patched: boolean } } {
   // Check if gemini CLI is installed
   if (!checkCliBinary()) {
     return {
@@ -55,7 +57,77 @@ export function checkAvailability(): { available: boolean; reason?: string } {
     };
   }
 
-  return { available: true };
+  // Check A2A availability (installed and patched)
+  const a2aInstalled = checkA2AInstalled();
+  const a2aPatched = a2aInstalled ? checkA2APatched(getA2APath()!) : false;
+
+  return { 
+    available: true,
+    a2a: {
+      installed: a2aInstalled,
+      patched: a2aPatched,
+    }
+  };
+}
+
+/**
+ * Checks if the A2A server binary is installed globally.
+ * Uses getA2APath() to resolve the path from `which gemini-cli-a2a-server`.
+ * 
+ * @returns true if A2A server is installed, false otherwise
+ */
+export function checkA2AInstalled(): boolean {
+  return getA2APath() !== null;
+}
+
+/**
+ * Checks if the A2A server file has been patched with the _requestedModel support.
+ * Reads the file synchronously and checks for the _requestedModel marker string.
+ * 
+ * @param filePath - Path to the A2A server file to check
+ * @returns true if file contains _requestedModel patch marker, false otherwise
+ */
+export function checkA2APatched(filePath: string): boolean {
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    return content.includes('_requestedModel');
+  } catch {
+    // File not found, permission denied, or other errors
+    return false;
+  }
+}
+
+/**
+ * Checks if the A2A server is running and responding to health checks.
+ * Makes an HTTP GET request to the /health endpoint with a 500ms timeout.
+ * 
+ * @param port - Port number to check (default: 41242)
+ * @returns Promise resolving to true if server responds with 200 OK, false otherwise
+ */
+export function checkA2ARunning(port: number = 41242): Promise<boolean> {
+  return new Promise((resolve) => {
+    const url = `http://localhost:${port}/health`;
+    
+    const req = http.get(url, (res) => {
+      if (res.statusCode === 200) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    });
+    
+    // Set timeout BEFORE ending the request
+    req.setTimeout(500, () => {
+      req.destroy();
+      resolve(false);
+    });
+    
+    req.on('error', () => {
+      resolve(false);
+    });
+    
+    req.end();
+  });
 }
 
 /**

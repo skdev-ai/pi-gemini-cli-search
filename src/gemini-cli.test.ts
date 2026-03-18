@@ -223,7 +223,7 @@ describe('executeSearch', () => {
   });
 
   describe('onUpdate progress streaming', () => {
-    it('should call onUpdate with "Starting search…" at the beginning', async () => {
+    it('should call onUpdate with "Searching…" at the beginning', async () => {
       // Note: This test would require mocking child_process.spawn to verify exact behavior
       // For now, we verify the function accepts onUpdate parameter without errors
       const updateMessages: string[] = [];
@@ -258,16 +258,16 @@ describe('executeSearch', () => {
         onUpdate: mockOnUpdate,
       });
       
-      // Verify onUpdate was called (at least "Starting search…" should be called)
+      // Verify onUpdate was called (at least "Searching…" should be called)
       // Even on timeout/error, the initial message should be sent
       assert.ok(updateMessages.length >= 1, 'Should receive at least one update message');
       
-      // If "Starting search…" was called, verify it's the first message
+      // If "Searching…" was called, verify it's the first message
       if (updateMessages.length > 0) {
         assert.strictEqual(
           updateMessages[0], 
-          'Starting search…', 
-          'First update should be "Starting search…"'
+          'Searching…', 
+          'First update should be "Searching…"'
         );
       }
       
