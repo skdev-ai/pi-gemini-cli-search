@@ -2,10 +2,11 @@ import { run } from 'node:test';
 
 import './url-resolver.test.ts';
 import './gemini-cli.test.ts';
-import './availability.test.ts';
+// Note: availability.test.ts now uses Vitest - run with 'npm run test:vitest'
 import './index.test.ts';
 import './cache.test.ts';
 import './types.test.ts';
+import './a2a-path.test.ts';
 
 // Call run() explicitly to ensure all tests are executed and results are reported.
 // This prevents the "node:test run() is being called recursively" warning

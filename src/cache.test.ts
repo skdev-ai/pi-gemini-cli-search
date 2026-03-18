@@ -26,6 +26,7 @@ describe('Query Cache', () => {
         answer: 'Test answer',
         sources: [
           {
+            title: 'Example',
             original: 'https://example.com',
             resolved: 'https://example.com',
             resolvedSuccessfully: true,

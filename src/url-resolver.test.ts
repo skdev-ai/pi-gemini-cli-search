@@ -20,12 +20,12 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const urls = ['https://vertexaisearch.cloud.google.com/grounding-api-redirect/test'];
+    const urls = [{ title: 'Test Page', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test' }];
     const results = await resolveGroundingUrls(urls);
 
     assert.strictEqual(results.length, 1);
     const result = results[0] as GroundingUrl;
-    assert.strictEqual(result.original, urls[0]);
+    assert.strictEqual(result.original, urls[0].url);
     assert.strictEqual(result.resolved, mockLocation);
     assert.strictEqual(result.resolvedSuccessfully, true);
 
@@ -43,7 +43,7 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const results = await resolveGroundingUrls(['https://example.com/redirect']);
+    const results = await resolveGroundingUrls([{ title: 'Redirect Page', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-301' }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.resolved, mockLocation);
@@ -63,7 +63,7 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const results = await resolveGroundingUrls(['https://example.com/redirect']);
+    const results = await resolveGroundingUrls([{ title: 'Redirect Page', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-307' }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.resolved, mockLocation);
@@ -83,7 +83,7 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const results = await resolveGroundingUrls(['https://example.com/redirect']);
+    const results = await resolveGroundingUrls([{ title: 'Redirect Page', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-308' }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.resolved, mockLocation);
@@ -102,8 +102,8 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const originalUrl = 'https://example.com/page';
-    const results = await resolveGroundingUrls([originalUrl]);
+    const originalUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-200';
+    const results = await resolveGroundingUrls([{ title: 'Test Page', url: originalUrl }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.original, originalUrl);
@@ -123,8 +123,8 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const originalUrl = 'https://example.com/not-found';
-    const results = await resolveGroundingUrls([originalUrl]);
+    const originalUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-404';
+    const results = await resolveGroundingUrls([{ title: 'Not Found Page', url: originalUrl }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.resolved, originalUrl);
@@ -136,8 +136,8 @@ describe('resolveGroundingUrls', () => {
   it('should fallback to original URL when network error occurs', async () => {
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.reject(new Error('Network error')));
 
-    const originalUrl = 'https://example.com/network-error';
-    const results = await resolveGroundingUrls([originalUrl]);
+    const originalUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-network-error';
+    const results = await resolveGroundingUrls([{ title: 'Error Page', url: originalUrl }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.original, originalUrl);
@@ -150,8 +150,8 @@ describe('resolveGroundingUrls', () => {
   it('should fallback to original URL when fetch throws timeout error', async () => {
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.reject(new Error('Timeout')));
 
-    const originalUrl = 'https://example.com/timeout';
-    const results = await resolveGroundingUrls([originalUrl]);
+    const originalUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-timeout';
+    const results = await resolveGroundingUrls([{ title: 'Timeout Page', url: originalUrl }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.resolvedSuccessfully, false);
@@ -187,9 +187,9 @@ describe('resolveGroundingUrls', () => {
     });
 
     const urls = [
-      'https://vertexaisearch.cloud.google.com/redirect1',
-      'https://vertexaisearch.cloud.google.com/redirect2',
-      'https://vertexaisearch.cloud.google.com/redirect3',
+      { title: 'Redirect 1', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/redirect1' },
+      { title: 'Redirect 2', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/redirect2' },
+      { title: 'Redirect 3', url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/redirect3' },
     ];
 
     const results = await resolveGroundingUrls(urls);
@@ -202,11 +202,11 @@ describe('resolveGroundingUrls', () => {
 
     // Second URL failed (network error)
     assert.strictEqual(results[1]!.resolvedSuccessfully, false);
-    assert.strictEqual(results[1]!.resolved, urls[1]);
+    assert.strictEqual(results[1]!.resolved, urls[1]!.url);
 
     // Third URL failed (no redirect)
     assert.strictEqual(results[2]!.resolvedSuccessfully, false);
-    assert.strictEqual(results[2]!.resolved, urls[2]);
+    assert.strictEqual(results[2]!.resolved, urls[2]!.url);
 
     fetchMock.mock.restore();
   });
@@ -227,8 +227,8 @@ describe('resolveGroundingUrls', () => {
 
     const fetchMock = mock.method(globalThis, 'fetch', () => Promise.resolve(mockResponse));
 
-    const originalUrl = 'https://example.com/redirect-no-location';
-    const results = await resolveGroundingUrls([originalUrl]);
+    const originalUrl = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test-no-location';
+    const results = await resolveGroundingUrls([{ title: 'Redirect No Location', url: originalUrl }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.resolved, originalUrl);
@@ -238,21 +238,16 @@ describe('resolveGroundingUrls', () => {
   });
 
 
-  it('should handle file:// scheme by returning original URL as-is with failure', async () => {
-    // Mock fetch to simulate an error when trying to fetch a file:// URL.
-    // In a typical Node.js environment without special setup, fetch will
-    // throw an error for file:// URLs.
-    const fetchMock = mock.method(globalThis, 'fetch', () => Promise.reject(new TypeError('Unsupported protocol file:')));
-
+  it('should handle file:// scheme by returning original URL as-is (treated as direct URL)', async () => {
+    // file:// URLs are not grounding redirects, so they're treated as direct URLs
+    // and returned as-is with resolvedSuccessfully: true
     const originalUrl = 'file:///path/to/local/file.txt';
-    const results = await resolveGroundingUrls([originalUrl]);
+    const results = await resolveGroundingUrls([{ title: 'Local File', url: originalUrl }]);
     const result = results[0] as GroundingUrl;
 
     assert.strictEqual(result.original, originalUrl);
     assert.strictEqual(result.resolved, originalUrl);
-    assert.strictEqual(result.resolvedSuccessfully, false);
-
-    fetchMock.mock.restore();
+    assert.strictEqual(result.resolvedSuccessfully, true);
   });
 
   it('should handle concurrent requests (all URLs processed in parallel)', async () => {
@@ -270,9 +265,9 @@ describe('resolveGroundingUrls', () => {
     });
 
     const urls = [
-      'https://example.com/url1',
-      'https://example.com/url2',
-      'https://example.com/url3',
+      { title: 'URL 1', url: 'https://example.com/url1' },
+      { title: 'URL 2', url: 'https://example.com/url2' },
+      { title: 'URL 3', url: 'https://example.com/url3' },
     ];
 
     const results = await resolveGroundingUrls(urls);

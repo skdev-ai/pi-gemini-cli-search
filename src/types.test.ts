@@ -19,6 +19,7 @@ describe('Shared Types', () => {
   describe('GroundingUrl', () => {
     it('should have required properties', () => {
       const url: GroundingUrl = {
+        title: 'Test Page',
         original: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test',
         resolved: 'https://example.com/page',
         resolvedSuccessfully: true,
@@ -73,6 +74,7 @@ describe('Shared Types', () => {
         answer: 'The latest TypeScript version is 5.0.0',
         sources: [
           {
+            title: 'TypeScript Docs',
             original: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/test',
             resolved: 'https://www.typescriptlang.org/docs',
             resolvedSuccessfully: true,

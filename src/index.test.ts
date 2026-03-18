@@ -14,8 +14,8 @@ class MockExtensionAPI {
   registeredTools: Map<string, MockToolConfig> = new Map();
   eventHandlers: Map<string, Function[]> = new Map();
 
-  registerTool(name: string, config: MockToolConfig): void {
-    this.registeredTools.set(name, config);
+  registerTool(config: MockToolConfig & { name: string }): void {
+    this.registeredTools.set(config.name, config as MockToolConfig);
   }
 
   on(event: string, handler: Function): void {
