@@ -199,6 +199,24 @@ describe('Transport Cascade', () => {
   });
   
   describe('AbortSignal Propagation', () => {
+    it('throws immediately if signal is already aborted', async () => {
+      const { executeSearch } = await import('./transport.js');
+      
+      const abortController = new AbortController();
+      abortController.abort(); // Pre-abort
+      
+      await expect(executeSearch('test query', { 
+        signal: abortController.signal 
+      })).rejects.toMatchObject({
+        type: 'TIMEOUT',
+        message: 'Search cancelled by user'
+      });
+      
+      // Should not call any transports
+      expect(executeSearchA2A).not.toHaveBeenCalled();
+      expect(executeSearchCold).not.toHaveBeenCalled();
+    });
+    
     it('propagates abort signal to A2A transport', async () => {
       const { executeSearch } = await import('./transport.js');
       
@@ -298,6 +316,46 @@ describe('Transport Cascade', () => {
       ]);
     });
     
+    it('notifies user when A2A is skipped due to server not running', async () => {
+      const { executeSearch } = await import('./transport.js');
+      
+      vi.mocked(getServerState).mockReturnValue({
+        status: 'stopped',
+        port: 41242,
+        uptime: null,
+        searchCount: 0,
+        lastError: null,
+        exitCode: null,
+        stdoutBuffer: [],
+        stderrBuffer: [],
+      });
+      
+      const progressMessages: string[] = [];
+      vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
+      
+      await executeSearch('test query', {
+        onUpdate: (msg) => progressMessages.push(msg),
+      });
+      
+      expect(progressMessages).toContain('[A2A] Skipped (server not running)…');
+    });
+    
+    it('notifies user when A2A is skipped due to fresh error', async () => {
+      const transport = await import('./transport.js');
+      
+      // Cache a fresh error
+      transport.__testing__.setLastError('a2a', createMockError('A2A_HUNG', 'Timeout'), Date.now());
+      
+      const progressMessages: string[] = [];
+      vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
+      
+      await transport.executeSearch('test query', {
+        onUpdate: (msg) => progressMessages.push(msg),
+      });
+      
+      expect(progressMessages).toContain('[A2A] Skipped (recent error)…');
+    });
+    
     it('handles undefined onUpdate gracefully', async () => {
       const { executeSearch } = await import('./transport.js');
       
@@ -385,6 +443,28 @@ describe('Transport Cascade', () => {
       expect(state.activeTransport).toBe('a2a');
       expect(state.a2aLastError).toBeNull();
       expect(state.coldLastError).toBeNull();
+    });
+    
+    it('resetTransportState() clears all cached errors', async () => {
+      const transport = await import('./transport.js');
+      
+      // Cache some errors
+      transport.__testing__.setLastError('a2a', createMockError('A2A_HUNG', 'Timeout'), Date.now());
+      transport.__testing__.setLastError('cold', createMockError('CLI_NOT_FOUND', 'Not installed'), Date.now());
+      
+      let state = transport.getTransportState();
+      expect(state.a2aLastError).toBeDefined();
+      expect(state.coldLastError).toBeDefined();
+      
+      // Reset
+      transport.resetTransportState();
+      
+      state = transport.getTransportState();
+      expect(state.a2aLastError).toBeNull();
+      expect(state.coldLastError).toBeNull();
+      expect(state.activeTransport).toBeNull();
+      expect(state.a2aConsecutiveFailures).toBe(0);
+      expect(state.coldConsecutiveFailures).toBe(0);
     });
     
     it('returns accurate state after cold fallback', async () => {

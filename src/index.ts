@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { executeSearch } from "./transport.js";
+import { executeSearch, resetTransportState } from "./transport.js";
 import type { SearchResult } from "./types.js";
 import { get, set, clear as clearCache } from "./cache.js";
 import { checkAvailability } from "./availability.js";
@@ -248,8 +248,9 @@ export default function (pi: ExtensionAPI) {
   
   // Notify on session start
   pi.on('session_start', async () => {
-    // Clear cache on session start to prevent stale data
+    // Clear cache and reset transport state on session start to prevent stale data
     clearCache();
+    resetTransportState();
     
     const availability = checkAvailability();
     if (availability.available) {

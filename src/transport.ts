@@ -84,6 +84,13 @@ function log(message: string): void {
   console.log(`[transport] ${message}`);
 }
 
+/**
+ * Creates a SearchError object from unknown error
+ */
+function createSearchError(type: SearchError['type'], message: string): SearchError {
+  return { type, message };
+}
+
 // ============================================================================
 // Error TTL Logic
 // ============================================================================
@@ -147,6 +154,21 @@ export function getTransportState(): TransportState {
 }
 
 /**
+ * Resets the transport state to initial values.
+ * Called on session_start to clear stale errors from previous session.
+ * 
+ * @internal Exported for session hygiene, not for general use
+ */
+export function resetTransportState(): void {
+  log('Resetting transport state');
+  transportState.activeTransport = null;
+  transportState.a2aLastError = null;
+  transportState.coldLastError = null;
+  transportState.a2aConsecutiveFailures = 0;
+  transportState.coldConsecutiveFailures = 0;
+}
+
+/**
  * Executes a search with intelligent transport cascade.
  * 
  * Cascade order:
@@ -178,6 +200,12 @@ export async function executeSearch(
   // Create abort controller for signal propagation
   let abortController: AbortController | null = null;
   
+  // Check if signal is already aborted before starting
+  if (signal?.aborted) {
+    log('Caller signal already aborted, throwing TIMEOUT');
+    throw createSearchError('TIMEOUT', 'Search cancelled by user');
+  }
+  
   // Link caller's abort signal if provided
   if (signal) {
     abortController = new AbortController();
@@ -203,6 +231,9 @@ export async function executeSearch(
   
   if (!shouldAttemptA2A) {
     log('A2A server not running, skipping to cold transport');
+    if (onUpdate) {
+      onUpdate('[A2A] Skipped (server not running)…');
+    }
   }
   
   // Step 2: Check if A2A has fresh cached error
@@ -214,6 +245,9 @@ export async function executeSearch(
     } else {
       log('A2A has fresh cached error, skipping to cold transport');
       shouldAttemptA2A = false;
+      if (onUpdate) {
+        onUpdate('[A2A] Skipped (recent error)…');
+      }
     }
   }
   
@@ -235,11 +269,14 @@ export async function executeSearch(
       
       return {
         ...result,
+        // Transport field already set by executeSearchA2A, but explicitly set for clarity
         transport: 'a2a',
       };
     } catch (error) {
       // Step 5: A2A error - cache error, fallback to cold
-      const searchError = error as SearchError;
+      const searchError = (error && typeof error === 'object' && 'type' in error) 
+        ? (error as SearchError)
+        : createSearchError('SEARCH_FAILED', error instanceof Error ? error.message : String(error));
       log(`A2A failed with ${searchError.type}: ${searchError.message}, falling back to cold`);
       if (onUpdate) {
         onUpdate('[A2A] Failed, trying alternative method…');
@@ -249,10 +286,15 @@ export async function executeSearch(
       transportState.activeTransport = 'cold';
       
       // Continue to cold transport below
+      // NOTE: When S01 adds ACP transport, insert it here:
+      // 1. Check if ACP has fresh cached error
+      // 2. If not, attempt executeSearchACP() 
+      // 3. On success return with transport:'acp'
+      // 4. On error cache and fall through to cold
     }
   }
   
-  // Step 6: Execute cold spawn
+  // Step 6: Execute cold spawn (ultimate fallback)
   log('Executing cold spawn transport...');
   
   try {
@@ -265,19 +307,24 @@ export async function executeSearch(
     // Step 7: Return cold result
     log('Cold spawn search completed');
     
-    // Don't clear cold error on success - cold is fallback, we want to track if it was needed
+    // Clear cold error on success (R018: errors should be cleared after success)
+    clearError('cold');
     transportState.activeTransport = 'cold';
     
     return {
       ...result,
+      // Transport field already set by executeSearchCold, but explicitly set for clarity
       transport: 'cold',
     };
   } catch (error) {
     // Both transports failed
-    const searchError = error as SearchError;
+    const searchError = (error && typeof error === 'object' && 'type' in error) 
+      ? (error as SearchError)
+      : createSearchError('SEARCH_FAILED', error instanceof Error ? error.message : String(error));
     log(`Cold spawn also failed with ${searchError.type}: ${searchError.message}`);
     
     cacheError('cold', searchError);
+    transportState.activeTransport = null; // No active transport when both fail
     
     throw searchError;
   }
