@@ -18,6 +18,17 @@ vi.mock('./a2a-lifecycle.js', () => ({
   stopServer: vi.fn(),
 }));
 
+// Mock availability check to return A2A ready
+vi.mock('./availability.js', () => ({
+  checkAvailability: vi.fn(() => ({
+    available: true,
+    a2a: {
+      installed: true,
+      patched: true,
+    },
+  })),
+}));
+
 // Mock ExtensionAPI for testing (since @gsd/pi-coding-agent types aren't available at compile time)
 interface MockToolConfig {
   description: string;

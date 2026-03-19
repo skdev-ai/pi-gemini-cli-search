@@ -198,7 +198,7 @@ export default function (pi: ExtensionAPI) {
     lines.push(`- Port: \`${state.port}\``);
     
     if (state.uptime && state.uptime > 0) {
-      lines.push(`- Uptime: \`${Math.round(state.uptime)}s\``);
+      lines.push(`- Uptime: \`${Math.round(state.uptime / 1000)}s\``);
     }
     
     lines.push(`- Search Count: \`${state.searchCount}\``);
@@ -209,6 +209,19 @@ export default function (pi: ExtensionAPI) {
     
     if (state.lastError) {
       lines.push(`- Last Error: \`${state.lastError.type}: ${state.lastError.message}\``);
+    }
+    
+    // Show last 10 lines of stderr/stdout buffers if available
+    if (state.stderrBuffer && state.stderrBuffer.length > 0) {
+      const recentStderr = state.stderrBuffer.slice(-10);
+      lines.push(`- Recent Stderr:`);
+      recentStderr.forEach(line => lines.push(`  \`${line}\``));
+    }
+    
+    if (state.stdoutBuffer && state.stdoutBuffer.length > 0) {
+      const recentStdout = state.stdoutBuffer.slice(-10);
+      lines.push(`- Recent Stdout:`);
+      recentStdout.forEach(line => lines.push(`  \`${line}\``));
     }
     
     ctx.ui.notify(lines.join('\n'), 'info');
@@ -223,17 +236,41 @@ export default function (pi: ExtensionAPI) {
     if (availability.available) {
       console.log('[gemini-cli-search] Tool available and ready');
       
-      // Fire-and-forget A2A server startup (non-blocking)
-      startServer()
-        .then(() => console.log('[gemini-cli-search] A2A server started successfully'))
-        .catch(err => console.error('[gemini-cli-search] A2A startup failed:', err));
+      // Only start A2A server if it's installed and patched
+      // Check a2a-specific availability (not just CLI + credentials)
+      const a2aReady = availability.a2a?.installed && availability.a2a?.patched;
+      if (a2aReady) {
+        // Fire-and-forget A2A server startup (non-blocking)
+        startServer()
+          .then(() => console.log('[gemini-cli-search] A2A server started successfully'))
+          .catch(err => console.error('[gemini-cli-search] A2A startup failed:', err));
+      } else {
+        console.log('[gemini-cli-search] A2A server not ready (not installed or patched). Run /gemini install-a2a to set up.');
+      }
     } else {
       console.log(`[gemini-cli-search] Tool unavailable: ${availability.reason}`);
     }
   });
   
-  // Graceful shutdown handler
+  // Graceful shutdown handlers
+  // Note: process.on('exit') is synchronous - async operations don't complete
+  // Use SIGINT/SIGTERM for async cleanup, then sync kill on exit
+  const gracefulShutdown = async (signal: string) => {
+    console.log(`[gemini-cli-search] Received ${signal}, shutting down A2A server...`);
+    try {
+      await stopServer();
+      console.log('[gemini-cli-search] A2A server stopped gracefully');
+    } catch (err) {
+      console.error('[gemini-cli-search] Error during shutdown:', err);
+    }
+  };
+  
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  
+  // Fallback: synchronous cleanup if async handlers didn't complete
   process.on('exit', () => {
-    stopServer();
+    // Synchronous cleanup - just log, actual stop happens in signal handlers
+    console.log('[gemini-cli-search] Process exiting');
   });
 }
