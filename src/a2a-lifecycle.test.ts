@@ -126,7 +126,7 @@ describe('A2A Lifecycle Module', () => {
       });
 
       await expect(lifecycle.startServer()).rejects.toMatchObject({
-        type: 'A2A_HEADLESS_MISSING',
+        type: 'SEARCH_FAILED',
       });
     });
 
@@ -140,7 +140,7 @@ describe('A2A Lifecycle Module', () => {
       expect(mockedCheckA2APatched).toHaveBeenCalledWith('/mock/path/to/gemini-cli-a2a/dist/a2a-server.mjs');
     });
 
-    it('should spawn node process with correct env', async () => {
+    it('should spawn server process with correct env', async () => {
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
 
@@ -155,13 +155,14 @@ describe('A2A Lifecycle Module', () => {
       await startPromise;
 
       expect(mockedSpawn).toHaveBeenCalledWith(
-        'node',
-        ['/mock/path/to/gemini-cli-a2a/dist/a2a-server.mjs'],
+        'gemini-cli-a2a-server',
+        [],
         expect.objectContaining({
           stdio: ['ignore', 'pipe', 'pipe'],
           env: expect.objectContaining({
             USE_CCPA: '1',
             CODER_AGENT_PORT: '41242',
+            CODER_AGENT_WORKSPACE_PATH: expect.stringContaining('gemini-cli-search/a2a-workspace'),
             GEMINI_YOLO_MODE: 'true',
           }),
         })
@@ -257,7 +258,7 @@ describe('A2A Lifecycle Module', () => {
       });
     });
 
-    it('should timeout if ready marker not seen within 5s', async () => {
+    it('should timeout if ready marker not seen within 30s', async () => {
       vi.useFakeTimers();
       
       const mockChild = createMockChildProcess();
@@ -265,8 +266,8 @@ describe('A2A Lifecycle Module', () => {
 
       const startPromise = lifecycle.startServer();
 
-      // Advance time past timeout
-      vi.advanceTimersByTime(5000);
+      // Advance time past timeout (30s)
+      vi.advanceTimersByTime(30000);
 
       await expect(startPromise).rejects.toMatchObject({
         type: 'A2A_STARTUP_TIMEOUT',
@@ -275,18 +276,18 @@ describe('A2A Lifecycle Module', () => {
       expect(mockChild.kill).toHaveBeenCalledWith('SIGKILL');
 
       vi.useRealTimers();
-    });
+    }, 35000); // Give test 35s timeout
 
     it('should handle process exit during startup', async () => {
+      vi.useFakeTimers();
+      
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
 
       const startPromise = lifecycle.startServer();
 
       // Emit exit before ready
-      setTimeout(() => {
-        mockChild.emit('exit', 1, null);
-      }, 10);
+      mockChild.emit('exit', 1, null);
 
       await expect(startPromise).rejects.toMatchObject({
         type: 'A2A_CRASHED',
@@ -296,25 +297,30 @@ describe('A2A Lifecycle Module', () => {
       // Status should be error since we updated in catch block
       expect(state.status).toBe('error');
       expect(state.exitCode).toBe(1);
+      
+      vi.useRealTimers();
     });
 
     it('should handle spawn errors', async () => {
       const mockChild = createMockChildProcess();
       
-      // Mock spawn to emit an error immediately
+      // Mock spawn to emit an error immediately (binary not found)
       mockedSpawn.mockImplementationOnce(() => {
-        setTimeout(() => {
-          mockChild.emit('error', new Error('spawn ENOENT'));
-        }, 10);
+        // Emit error synchronously
+        queueMicrotask(() => {
+          mockChild.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }));
+        });
         return mockChild;
       });
 
       await expect(lifecycle.startServer()).rejects.toMatchObject({
-        type: 'A2A_STARTUP_TIMEOUT',
+        type: 'A2A_NOT_INSTALLED',
       });
     });
 
     it('should prevent concurrent spawns with lock', async () => {
+      vi.useFakeTimers();
+      
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
 
@@ -331,28 +337,30 @@ describe('A2A Lifecycle Module', () => {
       });
 
       // Emit ready
-      setTimeout(() => {
-        mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
-      }, 10);
+      mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
 
       await startPromise1;
       await startPromise2;
 
       const state = lifecycle.getServerState();
       expect(state.status).toBe('running');
+      
+      vi.useRealTimers();
     });
   });
 
   describe('stopServer()', () => {
     it('should send SIGTERM for graceful shutdown', async () => {
+      vi.useFakeTimers();
+      
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
 
       // Start server first
       const startPromise = lifecycle.startServer();
-      setTimeout(() => {
-        mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
-      }, 10);
+      
+      // Emit ready immediately (fake timers)
+      mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
       await startPromise;
 
       // Verify child process is set
@@ -362,9 +370,7 @@ describe('A2A Lifecycle Module', () => {
       const stopPromise = lifecycle.stopServer();
 
       // Simulate exit after SIGTERM
-      setTimeout(() => {
-        mockChild.emit('exit', null, 'SIGTERM');
-      }, 10);
+      mockChild.emit('exit', null, 'SIGTERM');
 
       await stopPromise;
 
@@ -373,6 +379,8 @@ describe('A2A Lifecycle Module', () => {
       const state = lifecycle.getServerState();
       expect(state.status).toBe('stopped');
       expect(state.exitCode).toBeNull();
+      
+      vi.useRealTimers();
     });
 
     it('should escalate to SIGKILL after 3s timeout', async () => {
@@ -382,23 +390,20 @@ describe('A2A Lifecycle Module', () => {
       // Start server
       const startPromise = lifecycle.startServer();
       
-      // Emit ready
+      // Emit ready immediately
       mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
       await startPromise;
 
-      // Stop server - don't await yet, and don't emit exit event
+      // Stop server - don't await yet
       const stopPromise = lifecycle.stopServer();
 
       // Wait for SIGKILL timeout (3s + buffer)
-      // The stopServer will send SIGTERM immediately, then SIGKILL after 3s
       await new Promise(resolve => setTimeout(resolve, 3500));
 
-      // Verify SIGKILL was sent
       expect(mockChild.kill).toHaveBeenCalledWith('SIGKILL');
 
-      // Now let it finish
       await stopPromise;
-    }, 10000); // Give this test 10s timeout
+    }, 10000); // Give test 10s timeout
 
     it('should handle stopping when no server is running', async () => {
       // Ensure no server is running
@@ -484,16 +489,16 @@ describe('A2A Lifecycle Module', () => {
       // Increment to 1000 - should trigger restart
       const incrementPromise = lifecycle.incrementSearchCount();
 
-      // Simulate server startup for restart
+      // Simulate server startup for restart (emit ready after a short delay)
       setTimeout(() => {
         mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
-      }, 10);
+      }, 50);
 
       await incrementPromise;
 
       // Count should be reset to 0
       expect(lifecycle.getSearchCount()).toBe(0);
-    });
+    }, 10000); // Give test 10s timeout
 
     it('should not trigger restart below 1000', async () => {
       lifecycle.__testing__.resetSearchCount();
@@ -628,6 +633,8 @@ describe('A2A Lifecycle Module', () => {
 
   describe('Concurrent Lock', () => {
     it('should block second caller until first completes', async () => {
+      vi.useFakeTimers();
+      
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
 
@@ -642,15 +649,15 @@ describe('A2A Lifecycle Module', () => {
       await Promise.resolve();
 
       // Emit ready
-      setTimeout(() => {
-        mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
-      }, 10);
+      mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
 
       await Promise.all([start1, start2]);
 
       // Both should be resolved now
       expect(firstResolved).toBe(true);
       expect(secondResolved).toBe(true);
+      
+      vi.useRealTimers();
     });
 
     it('should release lock on error', async () => {

@@ -7,6 +7,8 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type { A2AServerState, SearchError } from './types.js';
 import { getA2APackageRoot } from './a2a-path.js';
 import { checkA2APatched } from './availability.js';
@@ -16,7 +18,7 @@ import { checkA2APatched } from './availability.js';
 // ============================================================================
 
 const A2A_PORT = 41242;
-const STARTUP_TIMEOUT_MS = 5000;
+const STARTUP_TIMEOUT_MS = 30000; // 30s timeout (12s boot + generous margin)
 const RING_BUFFER_MAX = 50;
 const SEARCH_COUNT_RESTART_THRESHOLD = 1000;
 const READY_MARKER = 'Agent Server started';
@@ -127,7 +129,7 @@ export async function startServer(): Promise<void> {
   // Check concurrent lock - reject if already running (but not starting - that's handled by promise)
   if (serverState.status === 'running') {
     log('Server already running, rejecting duplicate start request');
-    throw createSearchError('A2A_HEADLESS_MISSING', 'Server is already running');
+    throw createSearchError('SEARCH_FAILED', 'Server is already running');
   }
 
   // Create startup promise for concurrent lock
@@ -144,13 +146,14 @@ export async function startServer(): Promise<void> {
         throw createSearchError('A2A_NOT_PATCHED', `A2A patch not found at ${serverPath}`);
       }
 
-      // Spawn the server process
-      childProcess = spawn('node', [serverPath], {
+      // Spawn the server process using the binary command (not direct node execution)
+      childProcess = spawn('gemini-cli-a2a-server', [], {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           USE_CCPA: '1',
           CODER_AGENT_PORT: String(A2A_PORT),
+          CODER_AGENT_WORKSPACE_PATH: join(homedir(), '.pi', 'agent', 'extensions', 'gemini-cli-search', 'a2a-workspace'),
           GEMINI_YOLO_MODE: 'true',
         },
       });
@@ -158,7 +161,7 @@ export async function startServer(): Promise<void> {
       let readyResolved = false;
       let startupTimeoutId: NodeJS.Timeout | null = null;
 
-      // Set up 5s timeout for readiness
+      // Set up 30s timeout for readiness (12s boot + generous margin)
       const timeoutPromise = new Promise<void>((_, reject) => {
         startupTimeoutId = setTimeout(() => {
           if (!readyResolved) {
@@ -209,6 +212,16 @@ export async function startServer(): Promise<void> {
                     updateState({ uptime: Date.now() - startTime });
                   }
                 }, 1000);
+                
+                // Attach persistent exit handler for runtime crashes
+                if (childProcess) {
+                  childProcess.on('exit', (code, signal) => {
+                    if (serverState.status === 'running') {
+                      log(`Server crashed unexpectedly with code ${code}, signal ${signal}`);
+                      handleExit(code, signal);
+                    }
+                  });
+                }
                 
                 log('Server is now running');
                 resolve();
@@ -269,18 +282,26 @@ export async function startServer(): Promise<void> {
           }
         });
 
-        // Handle spawn errors
-        childProcess.on('error', (err) => {
+        // Handle spawn errors (e.g., binary not found)
+        childProcess.on('error', (err: NodeJS.ErrnoException) => {
           if (!readyResolved) {
             readyResolved = true;
             if (startupTimeoutId) clearTimeout(startupTimeoutId);
             
+            let errorType: SearchError['type'] = 'A2A_STARTUP_TIMEOUT';
+            let errorMessage = `Failed to spawn server: ${err.message}`;
+            
+            if (err.code === 'ENOENT') {
+              errorType = 'A2A_NOT_INSTALLED';
+              errorMessage = 'gemini-cli-a2a-server binary not found. Please install with: npm install -g @google/gemini-cli-a2a-server';
+            }
+            
             updateState({ 
               status: 'error',
-              lastError: createSearchError('A2A_STARTUP_TIMEOUT', `Failed to spawn server: ${err.message}`)
+              lastError: createSearchError(errorType, errorMessage)
             });
             
-            reject(createSearchError('A2A_STARTUP_TIMEOUT', `Failed to spawn server: ${err.message}`));
+            reject(createSearchError(errorType, errorMessage));
           }
         });
       });

@@ -5,6 +5,7 @@ import type { SearchResult } from "./types.js";
 import { get, set, clear as clearCache } from "./cache.js";
 import { checkAvailability } from "./availability.js";
 import { installA2AServer } from "./a2a-installer.js";
+import { startServer, getServerState, stopServer } from "./a2a-lifecycle.js";
 
 /**
  * Gemini CLI Search Extension
@@ -187,6 +188,32 @@ export default function (pi: ExtensionAPI) {
     }
   });
   
+  // Register /gemini status command for A2A server diagnostics
+  pi.registerCommand('/gemini status', async (ctx: any) => {
+    const state = getServerState();
+    
+    const lines: string[] = [];
+    lines.push(`**A2A Server Status:**`);
+    lines.push(`- Status: \`${state.status}\``);
+    lines.push(`- Port: \`${state.port}\``);
+    
+    if (state.uptime && state.uptime > 0) {
+      lines.push(`- Uptime: \`${Math.round(state.uptime)}s\``);
+    }
+    
+    lines.push(`- Search Count: \`${state.searchCount}\``);
+    
+    if (state.exitCode !== null) {
+      lines.push(`- Exit Code: \`${state.exitCode}\``);
+    }
+    
+    if (state.lastError) {
+      lines.push(`- Last Error: \`${state.lastError.type}: ${state.lastError.message}\``);
+    }
+    
+    ctx.ui.notify(lines.join('\n'), 'info');
+  });
+  
   // Notify on session start
   pi.on('session_start', async () => {
     // Clear cache on session start to prevent stale data
@@ -195,8 +222,18 @@ export default function (pi: ExtensionAPI) {
     const availability = checkAvailability();
     if (availability.available) {
       console.log('[gemini-cli-search] Tool available and ready');
+      
+      // Fire-and-forget A2A server startup (non-blocking)
+      startServer()
+        .then(() => console.log('[gemini-cli-search] A2A server started successfully'))
+        .catch(err => console.error('[gemini-cli-search] A2A startup failed:', err));
     } else {
       console.log(`[gemini-cli-search] Tool unavailable: ${availability.reason}`);
     }
+  });
+  
+  // Graceful shutdown handler
+  process.on('exit', () => {
+    stopServer();
   });
 }
