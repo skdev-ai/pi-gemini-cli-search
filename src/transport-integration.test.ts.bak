@@ -59,10 +59,8 @@ async function resetTransportState(): Promise<void> {
     (transport.__testing__ as any).setState({
       activeTransport: null,
       a2aLastError: null,
-      acpLastError: null,
       coldLastError: null,
       a2aConsecutiveFailures: 0,
-      acpConsecutiveFailures: 0,
       coldConsecutiveFailures: 0,
     });
   }
@@ -177,11 +175,6 @@ describe('Transport Integration Tests', () => {
       );
 
       // Mock cold to also check for abort (production behavior)
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockImplementation(
         async (_query, options) => {
           // In production, cold would receive the already-aborted signal and fail fast
@@ -303,11 +296,6 @@ describe('Transport Integration Tests', () => {
       });
 
       // Mock cold to succeed
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockResolvedValue({
         answer: 'Cold result',
         sources: [],
@@ -360,11 +348,6 @@ describe('Transport Integration Tests', () => {
       );
 
       // Mock cold to succeed
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockResolvedValue({
         answer: 'Fallback result',
         sources: [],
@@ -465,11 +448,6 @@ describe('Transport Integration Tests', () => {
       );
 
       // Mock cold to succeed and also call onUpdate
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockImplementation(
         async (_query, options) => {
           options?.onUpdate?.('Searching…');
@@ -518,11 +496,6 @@ describe('Transport Integration Tests', () => {
       vi.mocked(executeSearchA2A).mockRejectedValue(
         createMockError('A2A_CONNECTION_REFUSED', 'A2A down')
       );
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockRejectedValue(
         createMockError('SEARCH_FAILED', 'Cold also failed')
       );
@@ -567,11 +540,6 @@ describe('Transport Integration Tests', () => {
       vi.mocked(executeSearchA2A).mockRejectedValue(
         createMockError('A2A_HUNG', 'Timeout')
       );
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockResolvedValue({
         answer: 'Fallback',
         sources: [],
@@ -769,11 +737,6 @@ describe('Transport Integration Tests', () => {
       );
 
       // Mock cold to succeed with progress messages (without prefix - wrapOnUpdate adds it)
-      // Mock ACP to fail so cascade falls through to cold
-      vi.mocked(executeSearchAcp).mockRejectedValue(
-        createMockError('ACP_BOOT_FAILED', 'CLI not available')
-      );
-
       vi.mocked(executeSearchCold).mockImplementation(
         async (_query, options) => {
           options?.onUpdate?.('Searching…');
@@ -806,145 +769,6 @@ describe('Transport Integration Tests', () => {
       expect(coldIndex).toBeGreaterThan(fallbackIndex);
 
       console.log(`[Integration Test] Message ordering verified: ${updateMessages.join(' → ')}`);
-    }
-  );
-
-  // ============================================================================
-  // Test 6: 3-Transport Comparison (Identical Output Structure)
-  // ============================================================================
-
-  /**
-   * VERIFIED WIRE FORMATS (from RESEARCH docs - DO NOT INVENT):
-   * 
-   * A2A Request Format (RESEARCH-gemini-provider-architecture.md):
-   * {
-   *   "jsonrpc": "2.0",
-   *   "method": "message/stream",
-   *   "params": {
-   *     "message": {
-   *       "role": "user",
-   *       "parts": [{ "kind": "text", "text": "Use the google_web_search tool to search the web for: <query>. Include source URLs." }],
-   *       "messageId": "msg-<uuid>",
-   *       "metadata": { "_model": "gemini-3-flash-preview" }
-   *     }
-   *   }
-   * }
-   * 
-   * ACP Request Format (RESEARCH-acp-warm-process.md):
-   * {"jsonrpc":"2.0","method":"session/prompt","params":{"sessionId":"<id>","prompt":[{"type":"text","text":"Use the google_web_search tool to search the web for: <query>. Include source URLs."}]}}
-   * 
-   * Cold Spawn Command (src/gemini-cli.ts):
-   * gemini -o text -p "<prompt>" --yolo -m <model>
-   * 
-   * ALL THREE must produce identical SearchResult STRUCTURE (not content — Gemini is non-deterministic):
-   * - Same fields present: answer (string), sources (GroundingUrl[]), transport ('a2a'|'acp'|'cold'), warning? (optional)
-   * - Same types: GroundingUrl has title, original, resolved, resolvedSuccessfully
-   * - Same pipeline applied: extractLinks() → resolveGroundingUrls() → stripLinks()
-   */
-
-  it(
-    'returns identical SearchResult STRUCTURE across all three transports (content varies — Gemini is non-deterministic)',
-    async () => {
-      const testQuery = 'current price of Bitcoin';
-      
-      // Mock data that all three transports will return (simulating shared answer pipeline)
-      // NOTE: In real usage, content WILL vary between transports due to model non-determinism.
-      // This test verifies STRUCTURE conformance, not content equality.
-      const mockAnswer = 'Bitcoin is currently trading at $95,000 USD.';
-      const mockSources = [
-        { title: 'Kraken', original: 'https://coindesk.com/price/bitcoin', resolved: 'https://coindesk.com/price/bitcoin', resolvedSuccessfully: true },
-        { title: 'TradingView', original: 'https://vertexaisearch.cloud.google.com/redirect/abc123', resolved: 'https://tradingview.com/symbols/BTCUSD', resolvedSuccessfully: true },
-        { title: 'CoinMarketCap', original: 'https://www.google.com/search?q=bitcoin+price', resolved: 'https://coinmarketcap.com/currencies/bitcoin', resolvedSuccessfully: true },
-      ];
-      
-      // Test 1: A2A transport succeeds
-      vi.mocked(executeSearchA2A).mockResolvedValue({
-        answer: mockAnswer,
-        sources: mockSources,
-        transport: 'a2a',
-      });
-      
-      const resultA2A = await transport.executeSearch(testQuery);
-      
-      // Verify structure: all required fields present with correct types
-      expect(typeof resultA2A.answer).toBe('string');
-      expect(Array.isArray(resultA2A.sources)).toBe(true);
-      expect(resultA2A.sources.length).toBeGreaterThan(0);
-      expect(['a2a', 'acp', 'cold']).toContain(resultA2A.transport);
-      // Verify GroundingUrl structure
-      resultA2A.sources.forEach(source => {
-        expect(source).toHaveProperty('title');
-        expect(source).toHaveProperty('original');
-        expect(source).toHaveProperty('resolved');
-        expect(source).toHaveProperty('resolvedSuccessfully');
-        expect(typeof source.title).toBe('string');
-        expect(typeof source.original).toBe('string');
-        expect(typeof source.resolved).toBe('string');
-        expect(typeof source.resolvedSuccessfully).toBe('boolean');
-      });
-      expect(resultA2A.transport).toBe('a2a');
-      
-      // Test 2: A2A fails, ACP succeeds (cascade)
-      await resetTransportState();
-      vi.clearAllMocks();
-      
-      vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'Not running'));
-      vi.mocked(executeSearchAcp).mockResolvedValue({
-        answer: mockAnswer,
-        sources: mockSources,
-        transport: 'acp',
-      });
-      
-      const resultAcp = await transport.executeSearch(testQuery);
-      
-      // Verify same structure as A2A
-      expect(typeof resultAcp.answer).toBe('string');
-      expect(Array.isArray(resultAcp.sources)).toBe(true);
-      expect(resultAcp.sources.length).toBeGreaterThan(0);
-      expect(resultAcp.transport).toBe('acp');
-      resultAcp.sources.forEach(source => {
-        expect(source).toHaveProperty('title');
-        expect(source).toHaveProperty('original');
-        expect(source).toHaveProperty('resolved');
-        expect(source).toHaveProperty('resolvedSuccessfully');
-      });
-      
-      // Test 3: A2A + ACP fail, cold spawn succeeds (full cascade)
-      await resetTransportState();
-      vi.clearAllMocks();
-      
-      vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'Not running'));
-      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
-      vi.mocked(executeSearchCold).mockResolvedValue({
-        answer: mockAnswer,
-        sources: mockSources,
-        transport: 'cold',
-      });
-      
-      const resultCold = await transport.executeSearch(testQuery);
-      
-      // Verify same structure as A2A and ACP
-      expect(typeof resultCold.answer).toBe('string');
-      expect(Array.isArray(resultCold.sources)).toBe(true);
-      expect(resultCold.sources.length).toBeGreaterThan(0);
-      expect(resultCold.transport).toBe('cold');
-      resultCold.sources.forEach(source => {
-        expect(source).toHaveProperty('title');
-        expect(source).toHaveProperty('original');
-        expect(source).toHaveProperty('resolved');
-        expect(source).toHaveProperty('resolvedSuccessfully');
-      });
-      
-      // CRITICAL ASSERTION: All three results have IDENTICAL STRUCTURE
-      // (Field names, types, and GroundingUrl shape — NOT content, which varies in real usage)
-      expect(typeof resultA2A.answer).toEqual(typeof resultAcp.answer);
-      expect(typeof resultA2A.sources).toEqual(typeof resultAcp.sources);
-      expect(typeof resultA2A.answer).toEqual(typeof resultCold.answer);
-      expect(typeof resultA2A.sources).toEqual(typeof resultCold.sources);
-      expect(typeof resultAcp.answer).toEqual(typeof resultCold.answer);
-      expect(typeof resultAcp.sources).toEqual(typeof resultCold.sources);
-      
-      console.log('[Integration Test] 3-transport STRUCTURE comparison verified: all transports return consistent SearchResult shape (answer: string, sources: GroundingUrl[], transport: enum)');
     }
   );
 });

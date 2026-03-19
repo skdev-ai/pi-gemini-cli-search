@@ -231,11 +231,17 @@ export default function (pi: ExtensionAPI) {
     lines.push(`**Transport Layer:**`);
     lines.push(`- Active Transport: \`${transportState.activeTransport ?? 'none'}\``);
     lines.push(`- A2A Consecutive Failures: \`${transportState.a2aConsecutiveFailures}\``);
+    lines.push(`- ACP Consecutive Failures: \`${transportState.acpConsecutiveFailures}\``);
     lines.push(`- Cold Consecutive Failures: \`${transportState.coldConsecutiveFailures}\``);
     
     if (transportState.a2aLastError) {
       const age = Math.round((Date.now() - transportState.a2aLastError.timestamp) / 1000);
       lines.push(`- A2A Last Error: \`${transportState.a2aLastError.error.type} (${age}s ago)\``);
+    }
+    
+    if (transportState.acpLastError) {
+      const age = Math.round((Date.now() - transportState.acpLastError.timestamp) / 1000);
+      lines.push(`- ACP Last Error: \`${transportState.acpLastError.error.type} (${age}s ago)\``);
     }
     
     if (transportState.coldLastError) {

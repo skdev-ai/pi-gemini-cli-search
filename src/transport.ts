@@ -9,6 +9,11 @@
  * - AbortSignal propagation to selected transport
  * - Progress forwarding with transport-specific prefixes
  * 
+ * Cascade Order:
+ * 1. A2A (primary) — fastest, shared across sessions
+ * 2. ACP (fallback) — warm subprocess, ~12s savings per query
+ * 3. Cold spawn (ultimate fallback) — always works if Gemini CLI installed
+ * 
  * Verified Wire Formats (from RESEARCH-gemini-provider-architecture.md):
  * 
  * A2A Request Format (src/a2a-transport.ts lines 166-195):
@@ -248,7 +253,7 @@ export async function executeSearch(
   let shouldAttemptA2A = serverState.status === 'running';
   
   if (!shouldAttemptA2A) {
-    log('A2A server not running, skipping to cold transport');
+    log('A2A server not running, skipping to ACP transport');
     if (onUpdate) {
       onUpdate('[A2A] Skipped (server not running)…');
     }
@@ -261,7 +266,7 @@ export async function executeSearch(
       log('A2A error is stale (>5min), will retry A2A');
       // Error is stale - will retry A2A
     } else {
-      log('A2A has fresh cached error, skipping to cold transport');
+      log('A2A has fresh cached error, skipping to ACP transport');
       shouldAttemptA2A = false;
       if (onUpdate) {
         onUpdate('[A2A] Skipped (recent error)…');
@@ -301,7 +306,7 @@ export async function executeSearch(
       }
       
       cacheError('a2a', searchError);
-      transportState.activeTransport = 'cold';
+      transportState.activeTransport = 'acp'; // Will be overwritten by actual result
       
       // Continue to ACP and cold transport below
     }
