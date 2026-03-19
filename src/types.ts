@@ -79,6 +79,13 @@ export interface SearchResult {
   warning?: SearchWarning;
   /** Optional error if the search failed */
   error?: SearchError;
+  /**
+   * Transport used for this search result.
+   * Set to 'a2a', 'acp', or 'cold' for searches performed after S05.
+   * Undefined for cached results from before S05 (pre-S05 results lack this field).
+   * Used to track which transport successfully answered the query for cascade optimization.
+   */
+  transport?: 'a2a' | 'acp' | 'cold';
 }
 
 /**
@@ -252,3 +259,10 @@ export interface A2AArtifact {
  * }
  * ```
  */
+
+/**
+ * Default search model used by all transports (A2A, ACP, cold).
+ * Ensures consistent AI responses across transport types.
+ * gemini-3-flash-preview selected for fastest response time (7.7s avg) and cleanest direct URL output.
+ */
+export const SEARCH_MODEL = 'gemini-3-flash-preview';

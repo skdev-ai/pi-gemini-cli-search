@@ -15,6 +15,9 @@ import type {
   SearchOptions,
 } from './types.js';
 
+// Import constants
+import { SEARCH_MODEL } from './types.js';
+
 describe('Shared Types', () => {
   describe('GroundingUrl', () => {
     it('should have required properties', () => {
@@ -86,6 +89,7 @@ describe('Shared Types', () => {
       assert.ok(Array.isArray(result.sources));
       assert.strictEqual(result.warning, undefined);
       assert.strictEqual(result.error, undefined);
+      assert.strictEqual(result.transport, undefined);
     });
 
     it('should support warning property', () => {
@@ -112,6 +116,46 @@ describe('Shared Types', () => {
       };
 
       assert.strictEqual(result.error?.type, 'CLI_NOT_FOUND');
+    });
+
+    it('should support transport field for A2A transport', () => {
+      const result: SearchResult = {
+        answer: 'Search via A2A',
+        sources: [],
+        transport: 'a2a',
+      };
+
+      assert.strictEqual(result.transport, 'a2a');
+    });
+
+    it('should support transport field for ACP transport', () => {
+      const result: SearchResult = {
+        answer: 'Search via ACP',
+        sources: [],
+        transport: 'acp',
+      };
+
+      assert.strictEqual(result.transport, 'acp');
+    });
+
+    it('should support transport field for cold transport', () => {
+      const result: SearchResult = {
+        answer: 'Search via cold spawn',
+        sources: [],
+        transport: 'cold',
+      };
+
+      assert.strictEqual(result.transport, 'cold');
+    });
+
+    it('should allow transport to be undefined for cached pre-S05 results', () => {
+      const result: SearchResult = {
+        answer: 'Cached result',
+        sources: [],
+        // transport intentionally omitted to simulate pre-S05 cached result
+      };
+
+      assert.strictEqual(result.transport, undefined);
     });
   });
 
@@ -144,6 +188,17 @@ describe('Shared Types', () => {
       assert.strictEqual(options.model, 'gemini-2.5-pro');
       assert.strictEqual(options.timeout, 30000);
       assert.ok(options.signal);
+    });
+  });
+
+  describe('SEARCH_MODEL constant', () => {
+    it('should export SEARCH_MODEL constant', () => {
+      assert.ok(SEARCH_MODEL);
+      assert.strictEqual(typeof SEARCH_MODEL, 'string');
+    });
+
+    it('should use gemini-3-flash-preview model', () => {
+      assert.strictEqual(SEARCH_MODEL, 'gemini-3-flash-preview');
     });
   });
 });
