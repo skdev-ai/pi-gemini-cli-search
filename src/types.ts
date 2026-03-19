@@ -47,7 +47,7 @@ export interface SearchError {
     | 'A2A_NOT_INSTALLED'
     /** Detected when a2a.ts patch is missing from gemini-cli-core */
     | 'A2A_NOT_PATCHED'
-    /** Detected when server doesn't emit ready marker within 10s timeout */
+    /** Detected when server doesn't emit ready marker within 30s timeout (12s boot + margin) */
     | 'A2A_STARTUP_TIMEOUT'
     /** Detected when stderr contains 'FatalAuthenticationError' or 'OAuth token expired' */
     | 'A2A_AUTH_EXPIRED'
@@ -56,7 +56,11 @@ export interface SearchError {
     /** Detected when child process exits with non-zero code during runtime */
     | 'A2A_CRASHED'
     /** Detected when server is intentionally stopped via stopServer() */
-    | 'A2A_STOPPED';
+    | 'A2A_STOPPED'
+    /** Detected when A2A server accepts connection but no response within 45s (hung server) - S05 */
+    | 'A2A_HUNG'
+    /** Detected when ACP warm subprocess fails to boot within timeout - S01 */
+    | 'ACP_BOOT_FAILED';
   /** Human-readable error message */
   message: string;
 }
