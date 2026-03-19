@@ -3,7 +3,8 @@
  * 
  * Implements unified executeSearch() with intelligent fallback behavior:
  * - A2A transport (primary, multi-session, ~0.6s overhead)
- * - Cold spawn transport (fallback, always works, ~12s boot)
+ * - ACP transport (fallback, warm subprocess, ~12s savings per query)
+ * - Cold spawn transport (ultimate fallback, always works, ~12s boot)
  * - 5-minute error TTL decay before retrying failed transports
  * - AbortSignal propagation to selected transport
  * - Progress forwarding with transport-specific prefixes
@@ -40,8 +41,9 @@
 
 import type { SearchResult, SearchOptions, SearchError } from './types.js';
 import { executeSearchA2A } from './a2a-transport.js';
-import { executeSearchCold } from './cold-spawn.js';
 import { getServerState } from './a2a-lifecycle.js';
+import { executeSearchCold } from './cold-spawn.js';
+import { executeSearchAcp } from './acp.js';
 
 // ============================================================================
 // Constants
@@ -59,21 +61,25 @@ const ERROR_TTL_MS = 5 * 60 * 1000;
  * Singleton pattern - single source of truth for transport health.
  */
 interface TransportState {
-  /** Currently active transport ('a2a' or 'cold') */
-  activeTransport: 'a2a' | 'cold' | null;
+  /** Currently active transport ('a2a', 'acp', or 'cold') */
+  activeTransport: 'a2a' | 'acp' | 'cold' | null;
   /** Per-transport last error with timestamp */
   a2aLastError: { error: SearchError; timestamp: number } | null;
+  acpLastError: { error: SearchError; timestamp: number } | null;
   coldLastError: { error: SearchError; timestamp: number } | null;
   /** Per-transport consecutive failure count */
   a2aConsecutiveFailures: number;
+  acpConsecutiveFailures: number;
   coldConsecutiveFailures: number;
 }
 
 const transportState: TransportState = {
   activeTransport: null,
   a2aLastError: null,
+  acpLastError: null,
   coldLastError: null,
   a2aConsecutiveFailures: 0,
+  acpConsecutiveFailures: 0,
   coldConsecutiveFailures: 0,
 };
 
@@ -110,10 +116,13 @@ export function isErrorStale(timestamp: number): boolean {
  * Clears a cached error for a specific transport.
  * Called after successful search completion.
  */
-function clearError(transport: 'a2a' | 'cold'): void {
+function clearError(transport: 'a2a' | 'acp' | 'cold'): void {
   if (transport === 'a2a') {
     transportState.a2aLastError = null;
     transportState.a2aConsecutiveFailures = 0;
+  } else if (transport === 'acp') {
+    transportState.acpLastError = null;
+    transportState.acpConsecutiveFailures = 0;
   } else {
     transportState.coldLastError = null;
     transportState.coldConsecutiveFailures = 0;
@@ -125,12 +134,15 @@ function clearError(transport: 'a2a' | 'cold'): void {
  * Caches an error with timestamp for a specific transport.
  * Called when a transport fails.
  */
-function cacheError(transport: 'a2a' | 'cold', error: SearchError): void {
+function cacheError(transport: 'a2a' | 'acp' | 'cold', error: SearchError): void {
   const errorWithTimestamp = { error, timestamp: Date.now() };
   
   if (transport === 'a2a') {
     transportState.a2aLastError = errorWithTimestamp;
     transportState.a2aConsecutiveFailures++;
+  } else if (transport === 'acp') {
+    transportState.acpLastError = errorWithTimestamp;
+    transportState.acpConsecutiveFailures++;
   } else {
     transportState.coldLastError = errorWithTimestamp;
     transportState.coldConsecutiveFailures++;
@@ -163,8 +175,10 @@ export function resetTransportState(): void {
   log('Resetting transport state');
   transportState.activeTransport = null;
   transportState.a2aLastError = null;
+  transportState.acpLastError = null;
   transportState.coldLastError = null;
   transportState.a2aConsecutiveFailures = 0;
+  transportState.acpConsecutiveFailures = 0;
   transportState.coldConsecutiveFailures = 0;
 }
 
@@ -172,13 +186,17 @@ export function resetTransportState(): void {
  * Executes a search with intelligent transport cascade.
  * 
  * Cascade order:
- * 1. Check if A2A server is running — if not, skip to cold
- * 2. Check if A2A has fresh cached error — if yes, skip to cold
+ * 1. Check if A2A server is running — if not, skip to ACP
+ * 2. Check if A2A has fresh cached error — if yes, skip to ACP
  * 3. Attempt A2A transport
  * 4. On A2A success — cache success, return with transport:'a2a'
- * 5. On A2A error — cache error, fallback to cold
- * 6. Execute cold spawn
- * 7. Return cold result with transport:'cold'
+ * 5. On A2A error — cache error, fallback to ACP
+ * 6. Check if ACP has fresh cached error — if yes, skip to cold
+ * 7. Attempt ACP transport
+ * 8. On ACP success — cache success, return with transport:'acp'
+ * 9. On ACP error — cache error, fallback to cold spawn
+ * 10. Execute cold spawn (ultimate fallback)
+ * 11. Return cold result with transport:'cold'
  * 
  * Throughout:
  * - Propagates AbortSignal to selected transport
@@ -187,7 +205,7 @@ export function resetTransportState(): void {
  * @param query - The search query
  * @param options - Optional search configuration including signal and onUpdate
  * @returns Promise resolving to SearchResult with transport metadata
- * @throws SearchError if both transports fail
+ * @throws SearchError if all transports fail
  */
 export async function executeSearch(
   query: string,
@@ -216,10 +234,10 @@ export async function executeSearch(
   }
   
   // Helper to wrap onUpdate with transport prefix
-  const wrapOnUpdate = (transport: 'a2a' | 'cold'): ((message: string) => void) | undefined => {
+  const wrapOnUpdate = (transport: 'a2a' | 'acp' | 'cold'): ((message: string) => void) | undefined => {
     if (!onUpdate) return undefined;
     
-    const prefix = transport === 'a2a' ? '[A2A]' : '[Cold]';
+    const prefix = transport === 'a2a' ? '[A2A]' : transport === 'acp' ? '[ACP]' : '[Cold]';
     return (message: string) => onUpdate(`${prefix} ${message}`);
   };
   
@@ -285,16 +303,66 @@ export async function executeSearch(
       cacheError('a2a', searchError);
       transportState.activeTransport = 'cold';
       
-      // Continue to cold transport below
-      // NOTE: When S01 adds ACP transport, insert it here:
-      // 1. Check if ACP has fresh cached error
-      // 2. If not, attempt executeSearchACP() 
-      // 3. On success return with transport:'acp'
-      // 4. On error cache and fall through to cold
+      // Continue to ACP and cold transport below
     }
   }
   
-  // Step 6: Execute cold spawn (ultimate fallback)
+  // Step 6: Attempt ACP transport (middle tier fallback)
+  // Note: No separate ACP availability check needed — if Gemini CLI is installed (checkCliBinary),
+  // ACP works. Just try spawning and catch errors (ENOENT = CLI not installed).
+  log('Attempting ACP transport...');
+  
+  // Check if ACP has fresh cached error
+  let shouldAttemptAcp = true;
+  if (transportState.acpLastError !== null) {
+    const { timestamp } = transportState.acpLastError;
+    if (isErrorStale(timestamp)) {
+      log('ACP error is stale (>5min), will retry ACP');
+      // Error is stale - will retry ACP
+    } else {
+      log('ACP has fresh cached error, skipping to cold transport');
+      shouldAttemptAcp = false;
+      if (onUpdate) {
+        onUpdate('[ACP] Skipped (recent error)…');
+      }
+    }
+  }
+  
+  if (shouldAttemptAcp) {
+    try {
+      const result = await executeSearchAcp(query, {
+        ...options,
+        signal: abortController?.signal,
+        onUpdate: wrapOnUpdate('acp'),
+      });
+      
+      // ACP success - cache success, return result
+      log('ACP search completed successfully');
+      clearError('acp');
+      transportState.activeTransport = 'acp';
+      
+      return {
+        ...result,
+        transport: 'acp',
+      };
+    } catch (error) {
+      // ACP error - cache error, fall through to cold spawn
+      const searchError = (error && typeof error === 'object' && 'type' in error) 
+        ? (error as SearchError)
+        : createSearchError('SEARCH_FAILED', error instanceof Error ? error.message : String(error));
+      log(`ACP failed with ${searchError.type}: ${searchError.message}, falling back to cold spawn`);
+      if (onUpdate) {
+        onUpdate('[ACP] Failed, trying cold spawn…');
+      }
+      
+      cacheError('acp', searchError);
+      transportState.activeTransport = 'cold';
+      
+      // Continue to cold spawn below
+    }
+  }
+  
+  // Step 9: Execute cold spawn (ultimate fallback)
   log('Executing cold spawn transport...');
   
   try {
@@ -304,7 +372,7 @@ export async function executeSearch(
       onUpdate: wrapOnUpdate('cold'),
     });
     
-    // Step 7: Return cold result
+    // Step 10: Return cold result
     log('Cold spawn search completed');
     
     // Clear cold error on success (R018: errors should be cleared after success)
@@ -317,14 +385,14 @@ export async function executeSearch(
       transport: 'cold',
     };
   } catch (error) {
-    // Both transports failed
+    // All transports failed
     const searchError = (error && typeof error === 'object' && 'type' in error) 
       ? (error as SearchError)
       : createSearchError('SEARCH_FAILED', error instanceof Error ? error.message : String(error));
-    log(`Cold spawn also failed with ${searchError.type}: ${searchError.message}`);
+    log(`All transports failed - last error: ${searchError.type}: ${searchError.message}`);
     
     cacheError('cold', searchError);
-    transportState.activeTransport = null; // No active transport when both fail
+    transportState.activeTransport = null; // No active transport when all fail
     
     throw searchError;
   }
@@ -344,19 +412,21 @@ export const __testing__ = {
   /** Set entire transport state (for testing) */
   setState: (state: TransportState) => { Object.assign(transportState, state); },
   /** Cache an error manually */
-  cacheError: (transport: 'a2a' | 'cold', error: SearchError) => cacheError(transport, error),
+  cacheError: (transport: 'a2a' | 'acp' | 'cold', error: SearchError) => cacheError(transport, error),
   /** Clear cached error manually */
-  clearError: (transport: 'a2a' | 'cold') => clearError(transport),
+  clearError: (transport: 'a2a' | 'acp' | 'cold') => clearError(transport),
   /** Set last error with custom timestamp (for TTL testing) */
-  setLastError: (transport: 'a2a' | 'cold', error: SearchError, timestamp: number) => {
+  setLastError: (transport: 'a2a' | 'acp' | 'cold', error: SearchError, timestamp: number) => {
     if (transport === 'a2a') {
       transportState.a2aLastError = { error, timestamp };
+    } else if (transport === 'acp') {
+      transportState.acpLastError = { error, timestamp };
     } else {
       transportState.coldLastError = { error, timestamp };
     }
   },
   /** Get consecutive failure count */
-  getConsecutiveFailures: (transport: 'a2a' | 'cold') => {
-    return transport === 'a2a' ? transportState.a2aConsecutiveFailures : transportState.coldConsecutiveFailures;
+  getConsecutiveFailures: (transport: 'a2a' | 'acp' | 'cold') => {
+    return transport === 'a2a' ? transportState.a2aConsecutiveFailures : transport === 'acp' ? transportState.acpConsecutiveFailures : transportState.coldConsecutiveFailures;
   },
 };

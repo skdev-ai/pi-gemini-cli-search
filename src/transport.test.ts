@@ -33,12 +33,17 @@ vi.mock('./a2a-lifecycle.js', () => ({
   getServerState: vi.fn(),
 }));
 
+vi.mock('./acp.js', () => ({
+  executeSearchAcp: vi.fn(),
+}));
+
 import { executeSearchA2A } from './a2a-transport.js';
 import { executeSearchCold } from './cold-spawn.js';
 import { getServerState } from './a2a-lifecycle.js';
+import { executeSearchAcp } from './acp.js';
 
 // Helper to create mock search results
-function createMockResult(transport: 'a2a' | 'cold'): SearchResult {
+function createMockResult(transport: 'a2a' | 'acp' | 'cold'): SearchResult {
   return {
     answer: `Mock ${transport} answer`,
     sources: [{ title: 'Example', original: 'https://example.com', resolved: 'https://example.com', resolvedSuccessfully: true }],
@@ -72,8 +77,10 @@ describe('Transport Cascade', () => {
     transport.__testing__.setState({
       activeTransport: null,
       a2aLastError: null,
+      acpLastError: null,
       coldLastError: null,
       a2aConsecutiveFailures: 0,
+      acpConsecutiveFailures: 0,
       coldConsecutiveFailures: 0,
     });
   });
@@ -100,6 +107,7 @@ describe('Transport Cascade', () => {
       const { executeSearch } = await import('./transport.js');
       
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_HUNG', 'Timeout'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
       
       const result = await executeSearch('test query');
@@ -107,6 +115,7 @@ describe('Transport Cascade', () => {
       expect(result.transport).toBe('cold');
       expect(result.answer).toBe('Mock cold answer');
       expect(executeSearchA2A).toHaveBeenCalledTimes(1);
+      expect(executeSearchAcp).toHaveBeenCalledTimes(1);
       expect(executeSearchCold).toHaveBeenCalledTimes(1);
     });
     
@@ -124,12 +133,14 @@ describe('Transport Cascade', () => {
         stderrBuffer: [],
       });
       
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
       
       const result = await executeSearch('test query');
       
       expect(result.transport).toBe('cold');
       expect(executeSearchA2A).not.toHaveBeenCalled();
+      expect(executeSearchAcp).toHaveBeenCalledTimes(1);
       expect(executeSearchCold).toHaveBeenCalledTimes(1);
     });
     
@@ -139,12 +150,14 @@ describe('Transport Cascade', () => {
       // Manually cache an error
       __testing__.cacheError('a2a', createMockError('A2A_HUNG', 'Previous timeout'));
       
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
       
       const result = await executeSearch('test query');
       
       expect(result.transport).toBe('cold');
       expect(executeSearchA2A).not.toHaveBeenCalled();
+      expect(executeSearchAcp).toHaveBeenCalledTimes(1);
       expect(executeSearchCold).toHaveBeenCalledTimes(1);
     });
     
@@ -168,6 +181,7 @@ describe('Transport Cascade', () => {
       const { executeSearch } = await import('./transport.js');
       
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_HUNG', 'A2A timeout'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockRejectedValue(createMockError('CLI_NOT_FOUND', 'CLI not installed'));
       
       await expect(executeSearch('test query')).rejects.toEqual(
@@ -231,6 +245,8 @@ describe('Transport Cascade', () => {
         });
       });
       
+      // Make ACP also fail so we can verify cold fallback
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
       
       // Start search with abort signal
@@ -247,8 +263,9 @@ describe('Transport Cascade', () => {
     it('propagates abort signal to cold transport', async () => {
       const { executeSearch } = await import('./transport.js');
       
-      // Make A2A fail immediately to force cold
+      // Make A2A fail immediately to force ACP then cold
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'Not running'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       
       const abortController = new AbortController();
       vi.mocked(executeSearchCold).mockImplementation(async (_query, options) => {
@@ -295,8 +312,9 @@ describe('Transport Cascade', () => {
     it('forwards cold progress with [Cold] prefix', async () => {
       const { executeSearch } = await import('./transport.js');
       
-      // Force cold by making A2A fail
+      // Force cold by making A2A and ACP fail
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'Not running'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       
       const progressMessages: string[] = [];
       vi.mocked(executeSearchCold).mockImplementation(async (_query, options) => {
@@ -311,6 +329,7 @@ describe('Transport Cascade', () => {
       
       expect(progressMessages).toEqual([
         '[A2A] Failed, trying alternative method…',
+        '[ACP] Failed, trying cold spawn…',
         '[Cold] Searching…',
         '[Cold] Complete',
       ]);
@@ -471,6 +490,7 @@ describe('Transport Cascade', () => {
       const { executeSearch, getTransportState } = await import('./transport.js');
       
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_HUNG', 'Timeout'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
       
       await executeSearch('test query');
@@ -478,6 +498,7 @@ describe('Transport Cascade', () => {
       const state = getTransportState();
       expect(state.activeTransport).toBe('cold');
       expect(state.a2aLastError).toBeDefined();
+      expect(state.acpLastError).toBeDefined();
       expect(state.coldLastError).toBeNull(); // Cold succeeded
     });
     
@@ -500,6 +521,7 @@ describe('Transport Cascade', () => {
       const { executeSearch } = await import('./transport.js');
       
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'ECONNREFUSED'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(createMockResult('cold'));
       
       const result = await executeSearch('test query');
@@ -512,6 +534,7 @@ describe('Transport Cascade', () => {
       const { executeSearch } = await import('./transport.js');
       
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'Not running'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockRejectedValue(createMockError('CLI_NOT_FOUND', 'CLI not installed'));
       
       await expect(executeSearch('test query')).rejects.toEqual(
@@ -533,6 +556,7 @@ describe('Transport Cascade', () => {
       };
       
       vi.mocked(executeSearchA2A).mockRejectedValue(createMockError('A2A_CONNECTION_REFUSED', 'Not running'));
+      vi.mocked(executeSearchAcp).mockRejectedValue(createMockError('ACP_BOOT_FAILED', 'CLI not available'));
       vi.mocked(executeSearchCold).mockResolvedValue(mockResult);
       
       const result = await executeSearch('test query');
