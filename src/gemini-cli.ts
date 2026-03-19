@@ -13,7 +13,11 @@ import { resolveGroundingUrls } from './url-resolver.js';
  * @param text - Text to extract links from
  * @returns Array of { title, url } found
  */
-function extractLinks(text: string): Array<{ title: string; url: string }> {
+/**
+ * Extracts markdown links from text and returns them as { title, url } pairs.
+ * Used to identify grounding URLs from Gemini's response.
+ */
+export function extractLinks(text: string): Array<{ title: string; url: string }> {
   const links: Array<{ title: string; url: string }> = [];
   const seenUrls = new Set<string>();
 
@@ -59,7 +63,11 @@ function extractLinks(text: string): Array<{ title: string; url: string }> {
  * Strips the answer text: removes links, source sections, and trailing whitespace.
  * The extension renders its own sources section with resolved URLs.
  */
-function stripLinks(text: string): string {
+/**
+ * Removes markdown link syntax from text, leaving only the link text.
+ * Used to clean the answer before rendering sources separately.
+ */
+export function stripLinks(text: string): string {
   // Remove markdown links, keep title
   let cleaned = text.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, '$1');
   // Remove reference-style URLs: (https://...)

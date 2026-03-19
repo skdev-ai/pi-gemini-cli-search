@@ -6,17 +6,21 @@
  * transport attempted first in the cascade.
  * 
  * Features:
+ * - Correct JSON-RPC message/stream format per RESEARCH-gemini-provider-architecture.md
  * - Connection timeout (500ms) and response timeout (45s)
  * - AbortSignal propagation
  * - Granular progress updates via onUpdate callback
  * - Automatic search count increment after successful searches
  * - Comprehensive error handling with specific error types
+ * - Identical output processing to cold spawn (extractLinks → resolveGroundingUrls → stripLinks)
  */
 
 import { createParser, type EventSourceMessage } from 'eventsource-parser';
-import type { SearchResult, SearchOptions, A2AResult, A2AMessagePart, SearchError, GroundingUrl } from './types.js';
+import type { SearchResult, SearchOptions, A2AResult, A2AMessagePart, SearchError, GroundingUrl, SearchWarning } from './types.js';
 import { SEARCH_MODEL } from './types.js';
 import { getServerState, incrementSearchCount } from './a2a-lifecycle.js';
+import { extractLinks, stripLinks } from './gemini-cli.js';
+import { resolveGroundingUrls } from './url-resolver.js';
 
 // ============================================================================
 // Constants
@@ -60,44 +64,6 @@ function extractTextContent(result: A2AResult): string {
   const parts = result.status.message?.parts || [];
   const textParts = parts.filter((part: A2AMessagePart) => part.kind === 'text');
   return textParts.map(part => part.text || '').join('');
-}
-
-/**
- * Extracts sources from tool call arguments if available.
- * Returns empty array if no sources found.
- */
-function extractSources(result: A2AResult): GroundingUrl[] {
-  const parts = result.status.message?.parts || [];
-  
-  // Look for tool call parts that might contain search results
-  for (const part of parts) {
-    if (part.kind === 'data' && part.data?.request) {
-      const { name, args } = part.data.request;
-      
-      // Check if this is a google_web_search tool call
-      if (name === 'google_web_search' && args && typeof args === 'object') {
-        const argsRecord = args as Record<string, unknown>;
-        
-        // Try to extract sources from various possible structures
-        if (Array.isArray(argsRecord.sources)) {
-          return argsRecord.sources.map((source: unknown): GroundingUrl => {
-            if (typeof source === 'object' && source !== null) {
-              const s = source as Record<string, unknown>;
-              return {
-                title: String(s.title || ''),
-                original: String(s.original || ''),
-                resolved: String(s.resolved || ''),
-                resolvedSuccessfully: Boolean(s.resolvedSuccessfully),
-              };
-            }
-            return { title: '', original: '', resolved: '', resolvedSuccessfully: false };
-          });
-        }
-      }
-    }
-  }
-  
-  return [];
 }
 
 /**
@@ -164,25 +130,26 @@ export async function executeSearchA2A(
   if (serverState.status !== 'running') {
     log(`Server not running (status: ${serverState.status}), throwing A2A_CONNECTION_REFUSED`);
     throw createSearchError(
-      'A2A_CONNECTION_REFUSED' as SearchError['type'],
+      'A2A_CONNECTION_REFUSED',
       `A2A server not running (status: ${serverState.status})`
     );
   }
   
-  // Create abort controllers for connection and response timeouts
-  const connectionController = new AbortController();
+  // Create abort controller for response timeout and caller signal propagation
   const responseController = new AbortController();
   
-  // Set up connection timeout (500ms)
+  // Set up connection timeout (500ms) - fails fast if server doesn't accept connection
   const connectionTimeoutId = setTimeout(() => {
-    if (!connectionController.signal.aborted) {
-      connectionController.abort();
+    if (!responseController.signal.aborted) {
+      log('Connection timeout (>500ms), aborting request');
+      responseController.abort();
     }
   }, CONNECTION_TIMEOUT_MS);
   
   // Set up response timeout (45s total, or env var override)
   const responseTimeoutId = setTimeout(() => {
     if (!responseController.signal.aborted) {
+      log('Response timeout, aborting request');
       responseController.abort();
     }
   }, getResponseTimeout());
@@ -196,15 +163,25 @@ export async function executeSearchA2A(
   }
   
   try {
-    // Build JSON-RPC request envelope
+    // Build correct JSON-RPC request envelope per RESEARCH-gemini-provider-architecture.md
+    const messageId = `msg-${crypto.randomUUID()}`;
+    const requestId = `search-${crypto.randomUUID()}`;
+    const promptText = `Use the google_web_search tool to search the web for: ${query}. Include source URLs.`;
+    
     const requestBody = {
-      jsonrpc: '2.0',
-      method: 'generate',
+      jsonrpc: '2.0' as const,
+      method: 'message/stream' as const,
+      id: requestId,
       params: {
-        prompt: query,
-        model: SEARCH_MODEL,
+        message: {
+          role: 'user' as const,
+          parts: [{ kind: 'text' as const, text: promptText }],
+          messageId,
+          metadata: {
+            _model: SEARCH_MODEL,
+          },
+        },
       },
-      id: 'search-request',
     };
     
     log('Connecting to A2A server...');
@@ -217,6 +194,7 @@ export async function executeSearchA2A(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
       },
       body: JSON.stringify(requestBody),
       signal: responseController.signal,
@@ -245,12 +223,11 @@ export async function executeSearchA2A(
     }
     
     // Track parsing state (must be declared before parser callback)
-    const resultRef: { current: SearchResult | null } = { current: null };
+    let rawAnswer = '';
     let lastKnownState: string | null = null;
     let isComplete = false;
-    let accumulatedSources: GroundingUrl[] = [];
     
-    // Set up SSE parser
+    // Set up SSE parser with error handler for debugging
     const parser = createParser({
       onEvent: (event: EventSourceMessage) => {
         log(`SSE event received: ${event.event || 'message'}`);
@@ -271,11 +248,16 @@ export async function executeSearchA2A(
           
           log(`Result state: ${result.status?.state}, final: ${result.final}`);
           
-          // Accumulate sources from tool calls throughout the stream
-          const eventSources = extractSources(result);
-          if (eventSources.length > 0) {
-            log(`Accumulated ${eventSources.length} sources from ${result.status.state} event`);
-            accumulatedSources = [...accumulatedSources, ...eventSources];
+          // Only accumulate text from 'text-content' events (not 'thought' or 'tool-call-update')
+          const kind = result.metadata?.coderAgent?.kind;
+          if (kind === 'text-content') {
+            const eventText = extractTextContent(result);
+            if (eventText) {
+              rawAnswer = rawAnswer + eventText;
+              log(`Accumulated text content (total: ${rawAnswer.length} chars)`);
+            }
+          } else {
+            log(`Skipping non-text-content event: ${kind || 'unknown'}`);
           }
           
           // Track state for progress updates
@@ -292,19 +274,7 @@ export async function executeSearchA2A(
           // Check for task completion
           if (result.status.state === 'input-required' && result.final === true) {
             log('Task completed (input-required + final)');
-            
-            // Extract answer and use accumulated sources
-            const answer = extractTextContent(result);
-            
-            log(`Extracted answer: ${answer.substring(0, 50)}${answer.length > 50 ? '...' : ''}`);
-            log(`Total sources: ${accumulatedSources.length}`);
-            
-            // Store the final result
-            resultRef.current = {
-              answer,
-              sources: accumulatedSources,
-              transport: 'a2a' as const,
-            };
+            log(`Raw answer length: ${rawAnswer.length}`);
             
             // Mark as complete
             isComplete = true;
@@ -314,29 +284,41 @@ export async function executeSearchA2A(
           // Don't fail on individual parse errors, continue processing
         }
       },
+      onError: (error) => {
+        log(`SSE parser error: ${error.message}`);
+      },
+    });
+    
+    // Create abort promise once (avoids listener accumulation in loop)
+    const abortPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
+      // Check if already aborted
+      if (responseController.signal.aborted) {
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+        return;
+      }
+      // Listen for abort event (once only)
+      responseController.signal.addEventListener('abort', () => {
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      }, { once: true });
     });
     
     // Read and parse the stream with abort support
     while (true) {
-      const result = await Promise.race([
-        reader.read(),
-        new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
-          // Check if already aborted
-          if (responseController.signal.aborted) {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-            return;
-          }
-          // Listen for abort event
-          responseController.signal.addEventListener('abort', () => {
-            reject(new DOMException('The operation was aborted', 'AbortError'));
-          }, { once: true });
-        }),
-      ]);
+      const result = await Promise.race([reader.read(), abortPromise]);
       
       const { done, value } = result as { done: boolean; value?: Uint8Array };
       
       if (done) {
         log('Stream ended');
+        
+        // Check if stream ended without completion flag
+        if (!isComplete && rawAnswer) {
+          log(`WARNING: Stream ended prematurely without completion flag. Got ${rawAnswer.length} chars but no input-required+final state.`);
+          // Still process the answer but log a warning - better to return partial than nothing
+        } else if (!isComplete && !rawAnswer) {
+          log('Stream ended with no answer and no completion flag');
+          throw createSearchError('PARSE_ERROR', 'A2A stream ended without returning any answer');
+        }
         break;
       }
       
@@ -345,7 +327,7 @@ export async function executeSearchA2A(
       parser.feed(chunk);
       
       // If we have a complete result, we can stop reading
-      if (isComplete && resultRef.current) {
+      if (isComplete) {
         break;
       }
     }
@@ -354,17 +336,61 @@ export async function executeSearchA2A(
     clearTimeout(connectionTimeoutId);
     clearTimeout(responseTimeoutId);
     
-    // Check if we got a result
-    if (!resultRef.current) {
-      log('No result extracted from stream');
-      throw createSearchError('PARSE_ERROR', 'Failed to extract result from A2A response stream');
+    // Release reader lock
+    await reader.cancel();
+    
+    // Check if we got an answer
+    if (!rawAnswer) {
+      log('No answer extracted from stream');
+      throw createSearchError('PARSE_ERROR', 'Failed to extract answer from A2A response stream');
     }
     
-    // Increment search count after successful completion
-    log('Search completed successfully, incrementing search count');
-    await incrementSearchCount();
+    // Process answer identically to cold spawn: extractLinks → resolveGroundingUrls → stripLinks
+    log('Extracting links from answer...');
+    const links = extractLinks(rawAnswer);
+    log(`Extracted ${links.length} links from answer`);
     
-    const resultToReturn = resultRef.current;
+    // Add NO_SEARCH warning if no links found (same logic and message as cold spawn)
+    let warning: SearchWarning | undefined;
+    if (links.length === 0) {
+      log('No links found in answer - adding NO_SEARCH warning');
+      warning = {
+        type: 'NO_SEARCH',
+        message: 'Gemini may have answered from memory — information may not be current.',
+      };
+    }
+    
+    // Resolve grounding URLs
+    let sources: GroundingUrl[] = [];
+    if (links.length > 0) {
+      if (onUpdate) {
+        onUpdate(`Resolving ${links.length} source URLs…`);
+      }
+      log(`Resolving ${links.length} source URLs...`);
+      sources = await resolveGroundingUrls(links);
+      log(`Resolved ${sources.length} URLs`);
+    }
+    
+    // Strip links from answer text
+    const cleanAnswer = stripLinks(rawAnswer);
+    log(`Clean answer length: ${cleanAnswer.length}`);
+    
+    // Increment search count after successful completion (don't fail search if this throws)
+    try {
+      log('Search completed successfully, incrementing search count');
+      await incrementSearchCount();
+    } catch (countError) {
+      log(`WARNING: Failed to increment search count: ${(countError as Error).message}`);
+      // Don't fail the search - counting is observability, not core functionality
+    }
+    
+    const resultToReturn: SearchResult = {
+      answer: cleanAnswer,
+      sources,
+      transport: 'a2a',
+      ...(warning ? { warning } : {}),
+    };
+    
     log(`Returning result with ${resultToReturn.sources.length} sources`);
     return resultToReturn;
     
@@ -372,6 +398,12 @@ export async function executeSearchA2A(
     // Clean up timeouts on error
     clearTimeout(connectionTimeoutId);
     clearTimeout(responseTimeoutId);
+    
+    // Note: reader.cancel() is not called here because:
+    // 1. If error occurs before reader acquisition, reader doesn't exist yet
+    // 2. If error occurs during streaming, the stream is already broken
+    // 3. Node.js will GC the reader when response goes out of scope
+    // Explicit cancel would only be needed for graceful aborts, not errors
     
     // Re-throw SearchErrors as-is (already properly typed)
     if (error && typeof error === 'object' && 'type' in error) {
@@ -395,15 +427,10 @@ export async function executeSearchA2A(
           throw createSearchError('TIMEOUT', 'Search cancelled by user');
         }
         
-        // Determine if it's connection or response timeout
-        const connectionTimedOut = connectionController.signal.aborted;
-        if (connectionTimedOut) {
-          log('Connection timeout (>500ms)');
-          throw createSearchError('A2A_CONNECTION_REFUSED', `Connection timeout: A2A server did not respond within ${CONNECTION_TIMEOUT_MS}ms`);
-        } else {
-          log('Response timeout (>45s) - A2A_HUNG');
-          throw createSearchError('A2A_HUNG', `Response timeout: A2A server did not complete within ${getResponseTimeout()}ms`);
-        }
+        // All abort timeouts during streaming are A2A_HUNG
+        // (connection was established but server didn't complete)
+        log('Response timeout - A2A_HUNG');
+        throw createSearchError('A2A_HUNG', `Response timeout: A2A server did not complete within ${getResponseTimeout()}ms`);
       }
     }
     

@@ -12,6 +12,7 @@
  * - Transport field verification
  * - SSE parsing with multiple message parts
  * - Task completion detection
+ * - Link extraction and URL resolution pipeline
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -31,8 +32,21 @@ vi.mock('./types.js', async (importOriginal) => {
   };
 });
 
+// Mock gemini-cli functions (extractLinks, stripLinks)
+vi.mock('./gemini-cli.js', () => ({
+  extractLinks: vi.fn(),
+  stripLinks: vi.fn(),
+}));
+
+// Mock url-resolver
+vi.mock('./url-resolver.js', () => ({
+  resolveGroundingUrls: vi.fn(),
+}));
+
 import { getServerState, incrementSearchCount } from './a2a-lifecycle.js';
 import { SEARCH_MODEL } from './types.js';
+import { extractLinks, stripLinks } from './gemini-cli.js';
+import { resolveGroundingUrls } from './url-resolver.js';
 
 // Global fetch mock
 const fetchMock = vi.fn();
@@ -41,6 +55,11 @@ global.fetch = fetchMock;
 describe('executeSearchA2A', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // Default mocks for link processing pipeline
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    vi.mocked(resolveGroundingUrls).mockResolvedValue([]);
     
     // Default: server is running
     vi.mocked(getServerState).mockReturnValue({
@@ -64,6 +83,11 @@ describe('executeSearchA2A', () => {
   // ============================================================================
 
   it('completes successful search with SSE stream parsing', async () => {
+    // Mock link processing pipeline - return one link to avoid NO_SEARCH warning
+    vi.mocked(extractLinks).mockReturnValue([{ title: 'Example', url: 'http://example.com' }]);
+    vi.mocked(stripLinks).mockImplementation(() => 'Here is the answer');
+    vi.mocked(resolveGroundingUrls).mockResolvedValue([]);
+    
     // Mock successful SSE stream
     const mockStream = createSSEStream([
       { state: 'submitted', message: { parts: [{ kind: 'text', text: 'Task received' }] } },
@@ -86,32 +110,39 @@ describe('executeSearchA2A', () => {
     expect(result.answer).toBe('Here is the answer');
     expect(result.transport).toBe('a2a');
     expect(result.sources).toEqual([]);
+    expect(result.warning).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:41242',
       expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: expect.stringContaining('"method":"message/stream"'),
       })
     );
   });
 
-  it('extracts sources from tool call arguments', async () => {
+  it('extracts and resolves source URLs from markdown links', async () => {
+    // Mock link extraction to return test links
+    vi.mocked(extractLinks).mockReturnValue([
+      { title: 'Example Site', url: 'http://example.com' },
+      { title: 'Another Site', url: 'http://another.com' },
+    ]);
+    
+    // Mock URL resolution
+    vi.mocked(resolveGroundingUrls).mockResolvedValue([
+      { title: 'Example Site', original: 'http://example.com', resolved: 'http://example.com', resolvedSuccessfully: true },
+      { title: 'Another Site', original: 'http://another.com', resolved: 'http://another.com', resolvedSuccessfully: true },
+    ]);
+    
+    // Mock stripLinks to return cleaned text
+    vi.mocked(stripLinks).mockImplementation(() => 'Clean answer without links');
+    
     const mockStream = createSSEStream([
-      { 
-        state: 'working', 
-        message: { 
-          parts: [
-            { kind: 'data', data: { request: { name: 'google_web_search', args: { sources: [
-              { title: 'Example', original: 'http://example.com', resolved: 'http://example.com', resolvedSuccessfully: true }
-            ]} } } }
-          ] 
-        } 
-      },
       { 
         state: 'input-required', 
         final: true,
-        message: { parts: [{ kind: 'text', text: 'Answer with sources' }] }
+        message: { parts: [{ kind: 'text', text: 'Answer with [Example Site](http://example.com) links' }] }
       },
     ]);
     
@@ -123,10 +154,38 @@ describe('executeSearchA2A', () => {
     
     const result = await executeSearchA2A('test query');
     
-    expect(result.sources).toHaveLength(1);
-    expect(result.sources[0].title).toBe('Example');
+    expect(result.answer).toBe('Clean answer without links');
+    expect(result.sources).toHaveLength(2);
+    expect(result.sources[0].title).toBe('Example Site');
     expect(result.sources[0].original).toBe('http://example.com');
-    expect(result.sources[0].resolvedSuccessfully).toBe(true);
+    expect(vi.mocked(extractLinks)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(resolveGroundingUrls)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(stripLinks)).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds NO_SEARCH warning when no links found', async () => {
+    // Mock no links extracted
+    vi.mocked(extractLinks).mockReturnValue([]);
+    
+    const mockStream = createSSEStream([
+      { 
+        state: 'input-required', 
+        final: true,
+        message: { parts: [{ kind: 'text', text: 'Answer without any links' }] }
+      },
+    ]);
+    
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: mockStream,
+    });
+    
+    const result = await executeSearchA2A('test query');
+    
+    expect(result.warning).toBeDefined();
+    expect(result.warning?.type).toBe('NO_SEARCH');
+    expect(result.warning?.message).toContain('answered from memory');
   });
 
   it('filters SSE parts by kind === "text" (not type)', async () => {
@@ -230,8 +289,8 @@ describe('executeSearchA2A', () => {
       });
   });
 
-  it('throws A2A_CONNECTION_REFUSED on connection timeout (>500ms)', async () => {
-    // Simulate connection timeout by rejecting with AbortError after the connection timeout window
+  it('throws A2A_HUNG when connection takes too long (>500ms)', async () => {
+    // Simulate slow connection by delaying fetch resolution past the 500ms timeout
     fetchMock.mockImplementationOnce(() => {
       return new Promise((_, reject) => {
         setTimeout(() => {
@@ -244,7 +303,7 @@ describe('executeSearchA2A', () => {
     
     await expect(executeSearchA2A('test query'))
       .rejects.toMatchObject({
-        type: 'A2A_CONNECTION_REFUSED',
+        type: 'A2A_HUNG',
         message: expect.stringContaining('timeout'),
       });
   });
@@ -348,7 +407,7 @@ describe('executeSearchA2A', () => {
     await expect(executeSearchA2A('test query'))
       .rejects.toMatchObject({
         type: 'PARSE_ERROR',
-        message: expect.stringContaining('Failed to extract'),
+        message: expect.stringContaining('stream ended without returning'),
       });
   });
 
@@ -417,6 +476,10 @@ describe('executeSearchA2A', () => {
   });
 
   it('calls onUpdate with tool execution details', async () => {
+    // Mock link processing
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
     const onUpdate = vi.fn();
     const mockStream = createSSEStream([
       { 
@@ -441,11 +504,41 @@ describe('executeSearchA2A', () => {
     expect(onUpdate).toHaveBeenCalledWith('Tool executing: google_web_search…');
   });
 
+  it('calls onUpdate with URL resolution progress when links found', async () => {
+    // Mock link extraction with 3 links
+    vi.mocked(extractLinks).mockReturnValue([
+      { title: 'Link 1', url: 'http://link1.com' },
+      { title: 'Link 2', url: 'http://link2.com' },
+      { title: 'Link 3', url: 'http://link3.com' },
+    ]);
+    vi.mocked(resolveGroundingUrls).mockResolvedValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
+    const onUpdate = vi.fn();
+    const mockStream = createSSEStream([
+      { state: 'input-required', final: true, message: { parts: [{ kind: 'text', text: 'Answer' }] } },
+    ]);
+    
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: mockStream,
+    });
+    
+    await executeSearchA2A('test query', { onUpdate });
+    
+    expect(onUpdate).toHaveBeenCalledWith('Resolving 3 source URLs…');
+  });
+
   // ============================================================================
   // Request Format
   // ============================================================================
 
-  it('sends JSON-RPC envelope with correct structure', async () => {
+  it('sends JSON-RPC message/stream with correct structure', async () => {
+    // Mock link processing
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
     const mockStream = createSSEStream([
       { state: 'input-required', final: true, message: { parts: [{ kind: 'text', text: 'OK' }] } },
     ]);
@@ -462,21 +555,51 @@ describe('executeSearchA2A', () => {
       'http://localhost:41242',
       expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'generate',
-          params: {
-            prompt: 'test query',
-            model: SEARCH_MODEL,
-          },
-          id: 'search-request',
-        }),
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: expect.any(String),
       })
     );
+    
+    // Verify the request body structure
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(requestBody.jsonrpc).toBe('2.0');
+    expect(requestBody.method).toBe('message/stream');
+    expect(requestBody.id).toMatch(/^search-[a-f0-9-]+$/); // UUID format
+    expect(requestBody.params.message.role).toBe('user');
+    expect(requestBody.params.message.parts).toEqual([
+      { kind: 'text', text: expect.stringContaining('Use the google_web_search tool to search the web for:') }
+    ]);
+    expect(requestBody.params.message.messageId).toMatch(/^msg-[a-f0-9-]+$/); // UUID format
+    expect(requestBody.params.message.metadata._model).toBe(SEARCH_MODEL);
   });
 
-  it('uses SEARCH_MODEL constant for model parameter', async () => {
+  it('uses correct prompt instructing Gemini to use google_web_search tool', async () => {
+    // Mock link processing
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
+    const mockStream = createSSEStream([
+      { state: 'input-required', final: true, message: { parts: [{ kind: 'text', text: 'OK' }] } },
+    ]);
+    
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: mockStream,
+    });
+    
+    await executeSearchA2A('What is TypeScript?');
+    
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    const promptText = requestBody.params.message.parts[0].text;
+    expect(promptText).toBe('Use the google_web_search tool to search the web for: What is TypeScript?. Include source URLs.');
+  });
+
+  it('uses SEARCH_MODEL constant in message metadata', async () => {
+    // Mock link processing
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
     const mockStream = createSSEStream([
       { state: 'input-required', final: true, message: { parts: [{ kind: 'text', text: 'OK' }] } },
     ]);
@@ -491,7 +614,7 @@ describe('executeSearchA2A', () => {
     
     const callArgs = fetchMock.mock.calls[0];
     const body = JSON.parse(callArgs[1].body as string);
-    expect(body.params.model).toBe(SEARCH_MODEL);
+    expect(body.params.message.metadata._model).toBe(SEARCH_MODEL);
   });
 
   // ============================================================================
@@ -513,10 +636,12 @@ describe('executeSearchA2A', () => {
       body: mockStream,
     });
     
-    const result = await executeSearchA2A('test query');
-    
-    expect(result.answer).toBe('');
-    expect(result.transport).toBe('a2a');
+    // Empty answer should throw PARSE_ERROR
+    await expect(executeSearchA2A('test query'))
+      .rejects.toMatchObject({
+        type: 'PARSE_ERROR',
+        message: expect.stringContaining('Failed to extract answer'),
+      });
   });
 
   it('handles multiple text parts by concatenating', async () => {
@@ -545,6 +670,10 @@ describe('executeSearchA2A', () => {
   });
 
   it('ignores malformed SSE events', async () => {
+    // Mock link processing
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
     // Create stream that includes invalid JSON
     const encoder = new TextEncoder();
     const mockStream = {
@@ -561,10 +690,13 @@ describe('executeSearchA2A', () => {
             } else if (callCount === 2) {
               return {
                 done: false,
-                value: encoder.encode(`data: ${JSON.stringify({ result: { status: { state: 'input-required', message: { parts: [{ kind: 'text', text: 'Valid' }] } }, final: true } })}\n\n`),
+                value: encoder.encode(`data: ${JSON.stringify({ result: { status: { state: 'input-required', message: { parts: [{ kind: 'text', text: 'Valid' }] } }, final: true, metadata: { coderAgent: { kind: 'text-content' } } } })}\n\n`),
               };
             }
             return { done: true, value: undefined };
+          },
+          cancel: async () => {
+            // Mock cancel
           },
         };
       },
@@ -589,15 +721,20 @@ describe('executeSearchA2A', () => {
 /**
  * Creates a mock ReadableStream for SSE events
  */
-function createSSEStream(results: Array<{ state: string; final?: boolean; message: { parts: Array<{ kind?: string; type?: string; text?: string; data?: unknown }> } }>) {
+function createSSEStream(results: Array<{ state: string; final?: boolean; message: { parts: Array<{ kind?: string; type?: string; text?: string; data?: unknown }> }; kind?: string }>) {
   const encoder = new TextEncoder();
   const events = results.map(result => {
-    const { final, ...statusData } = result;
+    const { final, kind, ...statusData } = result;
     const data = JSON.stringify({
       jsonrpc: '2.0',
       result: {
         status: statusData,
         final, // Put final at result level, not inside status
+        metadata: {
+          coderAgent: {
+            kind: kind || 'text-content', // Default to 'text-content' for answer content
+          },
+        },
       },
     });
     return `data: ${data}\n\n`;
@@ -614,6 +751,10 @@ function createSSEStream(results: Array<{ state: string; final?: boolean; messag
           return { done: false, value };
         }
         return { done: true, value: undefined };
+      },
+      cancel: async () => {
+        // Mock cancel - just reset index
+        index = 0;
       },
     }),
   } as unknown as ReadableStream<Uint8Array>;

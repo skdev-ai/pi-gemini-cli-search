@@ -1,11 +1,12 @@
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { executeSearch } from "./gemini-cli.js";
+import { executeSearch } from "./transport.js";
 import type { SearchResult } from "./types.js";
 import { get, set, clear as clearCache } from "./cache.js";
 import { checkAvailability } from "./availability.js";
 import { installA2AServer } from "./a2a-installer.js";
 import { startServer, getServerState, stopServer } from "./a2a-lifecycle.js";
+import { getTransportState } from "./transport.js";
 
 /**
  * Gemini CLI Search Extension
@@ -190,38 +191,56 @@ export default function (pi: ExtensionAPI) {
   
   // Register /gemini status command for A2A server diagnostics
   pi.registerCommand('/gemini status', async (ctx: any) => {
-    const state = getServerState();
+    const a2aState = getServerState();
+    const transportState = getTransportState();
     
     const lines: string[] = [];
     lines.push(`**A2A Server Status:**`);
-    lines.push(`- Status: \`${state.status}\``);
-    lines.push(`- Port: \`${state.port}\``);
+    lines.push(`- Status: \`${a2aState.status}\``);
+    lines.push(`- Port: \`${a2aState.port}\``);
     
-    if (state.uptime && state.uptime > 0) {
-      lines.push(`- Uptime: \`${Math.round(state.uptime / 1000)}s\``);
+    if (a2aState.uptime && a2aState.uptime > 0) {
+      lines.push(`- Uptime: \`${Math.round(a2aState.uptime / 1000)}s\``);
     }
     
-    lines.push(`- Search Count: \`${state.searchCount}\``);
+    lines.push(`- Search Count: \`${a2aState.searchCount}\``);
     
-    if (state.exitCode !== null) {
-      lines.push(`- Exit Code: \`${state.exitCode}\``);
+    if (a2aState.exitCode !== null) {
+      lines.push(`- Exit Code: \`${a2aState.exitCode}\``);
     }
     
-    if (state.lastError) {
-      lines.push(`- Last Error: \`${state.lastError.type}: ${state.lastError.message}\``);
+    if (a2aState.lastError) {
+      lines.push(`- Last Error: \`${a2aState.lastError.type}: ${a2aState.lastError.message}\``);
     }
     
     // Show last 10 lines of stderr/stdout buffers if available
-    if (state.stderrBuffer && state.stderrBuffer.length > 0) {
-      const recentStderr = state.stderrBuffer.slice(-10);
+    if (a2aState.stderrBuffer && a2aState.stderrBuffer.length > 0) {
+      const recentStderr = a2aState.stderrBuffer.slice(-10);
       lines.push(`- Recent Stderr:`);
       recentStderr.forEach(line => lines.push(`  \`${line}\``));
     }
     
-    if (state.stdoutBuffer && state.stdoutBuffer.length > 0) {
-      const recentStdout = state.stdoutBuffer.slice(-10);
+    if (a2aState.stdoutBuffer && a2aState.stdoutBuffer.length > 0) {
+      const recentStdout = a2aState.stdoutBuffer.slice(-10);
       lines.push(`- Recent Stdout:`);
       recentStdout.forEach(line => lines.push(`  \`${line}\``));
+    }
+    
+    // Add transport layer diagnostics
+    lines.push('');
+    lines.push(`**Transport Layer:**`);
+    lines.push(`- Active Transport: \`${transportState.activeTransport ?? 'none'}\``);
+    lines.push(`- A2A Consecutive Failures: \`${transportState.a2aConsecutiveFailures}\``);
+    lines.push(`- Cold Consecutive Failures: \`${transportState.coldConsecutiveFailures}\``);
+    
+    if (transportState.a2aLastError) {
+      const age = Math.round((Date.now() - transportState.a2aLastError.timestamp) / 1000);
+      lines.push(`- A2A Last Error: \`${transportState.a2aLastError.error.type} (${age}s ago)\``);
+    }
+    
+    if (transportState.coldLastError) {
+      const age = Math.round((Date.now() - transportState.coldLastError.timestamp) / 1000);
+      lines.push(`- Cold Last Error: \`${transportState.coldLastError.error.type} (${age}s ago)\``);
     }
     
     ctx.ui.notify(lines.join('\n'), 'info');
