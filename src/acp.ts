@@ -178,6 +178,7 @@ let sessionId: string | null = null;
 let requestIdCounter = 0;
 let acpQueryCount = 0; // ACP-specific counter (only increments when cascade routes to ACP)
 let processStartTime: number | null = null;
+let lastAcpError: SearchError | null = null; // Track last error for getAcpState()
 const pendingRequests = new Map<number, PendingRequest>();
 
 /**
@@ -192,6 +193,7 @@ export function resetAcpState(): void {
   sessionId = null;
   requestIdCounter = 0;
   acpQueryCount = 0;
+  lastAcpError = null;
   processStartTime = null;
   pendingRequests.clear();
   console.log('[acp] State reset');
@@ -202,9 +204,9 @@ export function resetAcpState(): void {
  */
 export function getAcpState(): AcpState {
   return {
-    status: acpProcess ? 'running' : 'idle',
+    status: lastAcpError ? 'error' : (acpProcess ? 'running' : 'idle'),
     sessionCount: acpQueryCount,
-    lastError: null, // Would need to track this separately if needed
+    lastError: lastAcpError,
     uptime: processStartTime ? Date.now() - processStartTime : 0,
   };
 }
@@ -216,7 +218,8 @@ export function getAcpState(): AcpState {
 function sendRequest(
   method: string,
   params: Record<string, unknown>,
-  onNotification?: (notification: any) => void
+  onNotification?: (notification: any) => void,
+  timeoutMs: number = PROMPT_TIMEOUT_MS
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     if (!acpProcess || !acpProcess.stdin?.writable) {
@@ -235,7 +238,7 @@ function sendRequest(
     const timeoutId = setTimeout(() => {
       pendingRequests.delete(id);
       reject({ type: 'TIMEOUT', message: `ACP request ${method} timed out` });
-    }, PROMPT_TIMEOUT_MS);
+    }, timeoutMs);
 
     pendingRequests.set(id, { resolve, reject, onNotification, timeoutId });
 
@@ -382,6 +385,7 @@ async function ensureAcpProcess(): Promise<void> {
         acpProcess.kill();
         acpProcess = null;
       }
+      readline.close(); // Clean up readline interface on timeout
       const error: SearchError = {
         type: 'TIMEOUT',
         message: `ACP boot timed out after ${BOOT_TIMEOUT_MS}ms`,
@@ -402,22 +406,22 @@ async function ensureAcpProcess(): Promise<void> {
             name: 'gemini-cli-search',
             version: '0.1',
           },
-        });
+        }, undefined, BOOT_TIMEOUT_MS);
         console.log('[acp] Initialize complete');
 
-        // Step 2: Authenticate
+        // Step 2: Authenticate (use BOOT_TIMEOUT_MS for handshake)
         console.log('[acp] Sending authenticate request...');
         await sendRequest('authenticate', {
           methodId: 'oauth-personal',
-        });
+        }, undefined, BOOT_TIMEOUT_MS);
         console.log('[acp] Authentication complete');
 
-        // Step 3: Create session (ONCE per process lifetime)
+        // Step 3: Create session (ONCE per process lifetime) (use BOOT_TIMEOUT_MS)
         console.log('[acp] Creating new session...');
         const sessionResult = await sendRequest('session/new', {
           cwd: process.cwd(),
           mcpServers: [],
-        });
+        }, undefined, BOOT_TIMEOUT_MS);
         
         sessionId = sessionResult.sessionId;
         console.log('[acp] Session created:', sessionId);
@@ -463,12 +467,12 @@ export async function executeSearchAcp(
   }
 
   try {
-    // Ensure process is running and initialized
-    await ensureAcpProcess();
-
-    // Increment ACP-specific query counter (only when cascade routes to ACP)
+    // Increment counter BEFORE ensureAcpProcess so restart check sees updated count
     acpQueryCount++;
     console.log('[acp] Query', acpQueryCount, '/', MAX_ACP_QUERIES_BEFORE_RESTART);
+
+    // Ensure process is running and initialized
+    await ensureAcpProcess();
 
     // Collect response chunks and detect tool calls
     const textChunks: string[] = [];
@@ -518,10 +522,10 @@ export async function executeSearchAcp(
         cancelled = true;
 
         try {
-          // Send graceful cancellation request
+          // Send graceful cancellation request with short timeout (2s)
           await sendRequest('session/cancel', {
             sessionId: sessionId!,
-          });
+          }, undefined, CANCEL_GRACE_PERIOD_MS);
 
           // Wait up to 2s for graceful cancellation
           await new Promise((cancelResolve) => setTimeout(cancelResolve, CANCEL_GRACE_PERIOD_MS));
@@ -554,12 +558,7 @@ export async function executeSearchAcp(
         type: 'SEARCH_FAILED',
         message: 'Search was cancelled',
       };
-      return {
-        answer: '',
-        sources: [],
-        error,
-        transport: 'acp',
-      };
+      throw error;
     }
 
     // Concatenate all text chunks
@@ -570,12 +569,7 @@ export async function executeSearchAcp(
         type: 'SEARCH_FAILED',
         message: 'Gemini CLI returned empty response',
       };
-      return {
-        answer: '',
-        sources: [],
-        error,
-        transport: 'acp',
-      };
+      throw error;
     }
 
     // Extract links from response text
@@ -617,19 +611,19 @@ export async function executeSearchAcp(
   } catch (err: any) {
     console.log('[acp] Error:', err.type, err.message);
 
-    // Clean up on error
-    if (acpProcess) {
+    // Track error for getAcpState()
+    lastAcpError = err as SearchError;
+
+    // Clean up on FATAL errors only - don't kill on transient errors like TIMEOUT
+    const fatalErrors = ['ACP_BOOT_FAILED', 'NOT_AUTHENTICATED', 'CLI_NOT_FOUND', 'PARSE_ERROR'];
+    if (fatalErrors.includes(err.type) && acpProcess) {
       acpProcess.kill();
       acpProcess = null;
       sessionId = null;
     }
 
-    return {
-      answer: '',
-      sources: [],
-      error: err as SearchError,
-      transport: 'acp',
-    };
+    // THROW for cascade fallback - don't return { error }
+    throw err;
   }
 }
 
