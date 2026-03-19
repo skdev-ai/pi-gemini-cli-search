@@ -155,8 +155,8 @@ describe('A2A Lifecycle Module', () => {
       await startPromise;
 
       expect(mockedSpawn).toHaveBeenCalledWith(
-        'gemini-cli-a2a-server',
-        [],
+        'node',
+        [expect.stringContaining('a2a-server.mjs')],
         expect.objectContaining({
           stdio: ['ignore', 'pipe', 'pipe'],
           env: expect.objectContaining({

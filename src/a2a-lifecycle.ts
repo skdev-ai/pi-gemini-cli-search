@@ -138,7 +138,7 @@ export async function startServer(): Promise<void> {
       log('Starting A2A server...');
       updateState({ status: 'starting', lastError: null, exitCode: null });
 
-      // Verify patches
+      // Verify patches and get bundle path
       const packageRoot = getA2APackageRoot();
       const serverPath = packageRoot + '/dist/a2a-server.mjs';
       
@@ -146,8 +146,10 @@ export async function startServer(): Promise<void> {
         throw createSearchError('A2A_NOT_PATCHED', `A2A patch not found at ${serverPath}`);
       }
 
-      // Spawn the server process using the binary command (not direct node execution)
-      childProcess = spawn('gemini-cli-a2a-server', [], {
+      // Spawn the server process using node directly with the bundle path
+      // This avoids the isMainModule check failure that occurs when spawning
+      // via 'gemini-cli-a2a-server' symlink (basenames don't match)
+      childProcess = spawn('node', [serverPath], {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,

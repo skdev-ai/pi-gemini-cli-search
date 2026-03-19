@@ -163,93 +163,99 @@ export default function (pi: ExtensionAPI) {
     },
   });
   
-  // Register /gemini install-a2a command (R013)
-  pi.registerCommand('/gemini install-a2a', async (ctx: any) => {
-    try {
-      await installA2AServer({
-        ui: {
-          notify: (message) => ctx.ui.notify(message),
-          confirm: async (message, options) => {
-            const result = await ctx.ui.confirm(message, {
-              title: options?.title,
-              detail: options?.detail,
-            });
-            return result;
+  // Register gcs-install-a2a command (R013)
+  pi.registerCommand('gcs-install-a2a', {
+    description: 'Install and patch A2A server for search transport',
+    handler: async (_args: any, ctx: any) => {
+      try {
+        await installA2AServer({
+          ui: {
+            notify: (message) => ctx.ui.notify(message),
+            confirm: async (message, options) => {
+              const result = await ctx.ui.confirm(message, {
+                title: options?.title,
+                detail: options?.detail,
+              });
+              return result;
+            },
           },
-        },
-      });
-      ctx.ui.notify('A2A installation complete! Run `/gemini status` to verify.', 'success');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // Extract phase from error if available (prereq/install/workspace/patch/verify)
-      const phase = (error as any)?.phase || 'unknown';
-      const remediation = (error as any)?.remediation || 'Check logs and retry';
-      ctx.ui.notify(`Installation failed (${phase}): ${message}. ${remediation}`, 'error');
-      console.error('[A2A Install]', phase, error);
-    }
+        });
+        ctx.ui.notify('A2A installation complete! Run `gcs-status` to verify.', 'success');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Extract phase from error if available (prereq/install/workspace/patch/verify)
+        const phase = (error as any)?.phase || 'unknown';
+        const remediation = (error as any)?.remediation || 'Check logs and retry';
+        ctx.ui.notify(`Installation failed (${phase}): ${message}. ${remediation}`, 'error');
+        console.error('[A2A Install]', phase, error);
+      }
+    },
   });
   
-  // Register /gemini status command for A2A server diagnostics
-  pi.registerCommand('/gemini status', async (ctx: any) => {
-    const a2aState = getServerState();
-    const transportState = getTransportState();
-    
-    const lines: string[] = [];
-    lines.push(`**A2A Server Status:**`);
-    lines.push(`- Status: \`${a2aState.status}\``);
-    lines.push(`- Port: \`${a2aState.port}\``);
-    
-    if (a2aState.uptime && a2aState.uptime > 0) {
-      lines.push(`- Uptime: \`${Math.round(a2aState.uptime / 1000)}s\``);
-    }
-    
-    lines.push(`- Search Count: \`${a2aState.searchCount}\``);
-    
-    if (a2aState.exitCode !== null) {
-      lines.push(`- Exit Code: \`${a2aState.exitCode}\``);
-    }
-    
-    if (a2aState.lastError) {
-      lines.push(`- Last Error: \`${a2aState.lastError.type}: ${a2aState.lastError.message}\``);
-    }
-    
-    // Show last 10 lines of stderr/stdout buffers if available
-    if (a2aState.stderrBuffer && a2aState.stderrBuffer.length > 0) {
-      const recentStderr = a2aState.stderrBuffer.slice(-10);
-      lines.push(`- Recent Stderr:`);
-      recentStderr.forEach(line => lines.push(`  \`${line}\``));
-    }
-    
-    if (a2aState.stdoutBuffer && a2aState.stdoutBuffer.length > 0) {
-      const recentStdout = a2aState.stdoutBuffer.slice(-10);
-      lines.push(`- Recent Stdout:`);
-      recentStdout.forEach(line => lines.push(`  \`${line}\``));
-    }
-    
-    // Add transport layer diagnostics
-    lines.push('');
-    lines.push(`**Transport Layer:**`);
-    lines.push(`- Active Transport: \`${transportState.activeTransport ?? 'none'}\``);
-    lines.push(`- A2A Consecutive Failures: \`${transportState.a2aConsecutiveFailures}\``);
-    lines.push(`- ACP Consecutive Failures: \`${transportState.acpConsecutiveFailures}\``);
-    lines.push(`- Cold Consecutive Failures: \`${transportState.coldConsecutiveFailures}\``);
-    
-    if (transportState.a2aLastError) {
-      const age = Math.round((Date.now() - transportState.a2aLastError.timestamp) / 1000);
-      lines.push(`- A2A Last Error: \`${transportState.a2aLastError.error.type} (${age}s ago)\``);
-    }
-    
-    if (transportState.acpLastError) {
-      const age = Math.round((Date.now() - transportState.acpLastError.timestamp) / 1000);
-      lines.push(`- ACP Last Error: \`${transportState.acpLastError.error.type} (${age}s ago)\``);
-    }
-    
-    if (transportState.coldLastError) {
-      const age = Math.round((Date.now() - transportState.coldLastError.timestamp) / 1000);
-      lines.push(`- Cold Last Error: \`${transportState.coldLastError.error.type} (${age}s ago)\``);
-    }
-    
-    ctx.ui.notify(lines.join('\n'), 'info');
+  // Register gcs-status command for A2A server diagnostics
+  pi.registerCommand('gcs-status', {
+    description: 'Show gemini-cli-search transport status and diagnostics',
+    handler: async (_args: any, ctx: any) => {
+      const a2aState = getServerState();
+      const transportState = getTransportState();
+      
+      const lines: string[] = [];
+      lines.push(`**A2A Server Status:**`);
+      lines.push(`- Status: \`${a2aState.status}\``);
+      lines.push(`- Port: \`${a2aState.port}\``);
+      
+      if (a2aState.uptime && a2aState.uptime > 0) {
+        lines.push(`- Uptime: \`${Math.round(a2aState.uptime / 1000)}s\``);
+      }
+      
+      lines.push(`- Search Count: \`${a2aState.searchCount}\``);
+      
+      if (a2aState.exitCode !== null) {
+        lines.push(`- Exit Code: \`${a2aState.exitCode}\``);
+      }
+      
+      if (a2aState.lastError) {
+        lines.push(`- Last Error: \`${a2aState.lastError.type}: ${a2aState.lastError.message}\``);
+      }
+      
+      // Show last 10 lines of stderr/stdout buffers if available
+      if (a2aState.stderrBuffer && a2aState.stderrBuffer.length > 0) {
+        const recentStderr = a2aState.stderrBuffer.slice(-10);
+        lines.push(`- Recent Stderr:`);
+        recentStderr.forEach(line => lines.push(`  \`${line}\``));
+      }
+      
+      if (a2aState.stdoutBuffer && a2aState.stdoutBuffer.length > 0) {
+        const recentStdout = a2aState.stdoutBuffer.slice(-10);
+        lines.push(`- Recent Stdout:`);
+        recentStdout.forEach(line => lines.push(`  \`${line}\``));
+      }
+      
+      // Add transport layer diagnostics
+      lines.push('');
+      lines.push(`**Transport Layer:**`);
+      lines.push(`- Active Transport: \`${transportState.activeTransport ?? 'none'}\``);
+      lines.push(`- A2A Consecutive Failures: \`${transportState.a2aConsecutiveFailures}\``);
+      lines.push(`- ACP Consecutive Failures: \`${transportState.acpConsecutiveFailures}\``);
+      lines.push(`- Cold Consecutive Failures: \`${transportState.coldConsecutiveFailures}\``);
+      
+      if (transportState.a2aLastError) {
+        const age = Math.round((Date.now() - transportState.a2aLastError.timestamp) / 1000);
+        lines.push(`- A2A Last Error: \`${transportState.a2aLastError.error.type} (${age}s ago)\``);
+      }
+      
+      if (transportState.acpLastError) {
+        const age = Math.round((Date.now() - transportState.acpLastError.timestamp) / 1000);
+        lines.push(`- ACP Last Error: \`${transportState.acpLastError.error.type} (${age}s ago)\``);
+      }
+      
+      if (transportState.coldLastError) {
+        const age = Math.round((Date.now() - transportState.coldLastError.timestamp) / 1000);
+        lines.push(`- Cold Last Error: \`${transportState.coldLastError.error.type} (${age}s ago)\``);
+      }
+      
+      ctx.ui.notify(lines.join('\n'), 'info');
+    },
   });
   
   // Notify on session start

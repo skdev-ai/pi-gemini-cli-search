@@ -47,7 +47,9 @@ class MockExtensionAPI {
     this.registeredTools.set(config.name, config as MockToolConfig);
   }
 
-  registerCommand(name: string, handler: Function): void {
+  registerCommand(name: string, config: Function | { description: string; handler: Function }): void {
+    // Handle both old signature (handler directly) and new signature (object with description + handler)
+    const handler = typeof config === 'function' ? config : config.handler;
     this.registeredCommands.set(name, handler);
   }
 
@@ -150,7 +152,7 @@ describe('gemini_cli_search tool registration', () => {
   });
 });
 
-describe('/gemini status command', () => {
+describe('gcs-status command', () => {
   let mockApi: MockExtensionAPI;
 
   beforeEach(() => {
@@ -159,14 +161,14 @@ describe('/gemini status command', () => {
     extensionFactory(mockApi as any);
   });
 
-  it('registers /gemini status command', () => {
-    const handler = mockApi.registeredCommands.get('/gemini status');
+  it('registers gcs-status command', () => {
+    const handler = mockApi.registeredCommands.get('gcs-status');
     expect(handler).toBeDefined();
     expect(typeof handler).toBe('function');
   });
 
-  it('/gemini status command calls getServerState and displays status', async () => {
-    const handler = mockApi.registeredCommands.get('/gemini status');
+  it('gcs-status command calls getServerState and displays status', async () => {
+    const handler = mockApi.registeredCommands.get('gcs-status');
     expect(handler).toBeDefined();
     
     const mockCtx = {
@@ -175,7 +177,7 @@ describe('/gemini status command', () => {
       },
     };
     
-    await handler!(mockCtx);
+    await handler!( {}, mockCtx);
     
     expect(getServerState).toHaveBeenCalledTimes(1);
     expect(mockCtx.ui.notify).toHaveBeenCalledTimes(1);
@@ -198,7 +200,7 @@ describe('/gemini status command', () => {
       stderrBuffer: [],
     });
     
-    const handler = mockApi.registeredCommands.get('/gemini status');
+    const handler = mockApi.registeredCommands.get('gcs-status');
     expect(handler).toBeDefined();
     
     const mockCtx = {
@@ -207,7 +209,7 @@ describe('/gemini status command', () => {
       },
     };
     
-    await handler!(mockCtx);
+    await handler!( {}, mockCtx);
     
     const notifyMessage = mockCtx.ui.notify.mock.calls[0][0];
     expect(notifyMessage).toContain('Uptime:');
@@ -230,7 +232,7 @@ describe('/gemini status command', () => {
       stderrBuffer: [],
     });
     
-    const handler = mockApi.registeredCommands.get('/gemini status');
+    const handler = mockApi.registeredCommands.get('gcs-status');
     expect(handler).toBeDefined();
     
     const mockCtx = {
@@ -239,7 +241,7 @@ describe('/gemini status command', () => {
       },
     };
     
-    await handler!(mockCtx);
+    await handler!( {}, mockCtx);
     
     const notifyMessage = mockCtx.ui.notify.mock.calls[0][0];
     expect(notifyMessage).toContain('Last Error:');
