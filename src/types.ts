@@ -59,6 +59,8 @@ export interface SearchError {
     | 'A2A_STOPPED'
     /** Detected when A2A server accepts connection but no response within 45s (hung server) - S05 */
     | 'A2A_HUNG'
+    /** Detected when A2A server cannot be reached (connection refused/timeout) - S05 */
+    | 'A2A_CONNECTION_REFUSED'
     /** Detected when ACP warm subprocess fails to boot within timeout - S01 */
     | 'ACP_BOOT_FAILED';
   /** Human-readable error message */
