@@ -1,0 +1,211 @@
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
+import { loadConfig, saveConfig } from "./config.js";
+import { debugLog } from "./logger.js";
+
+/**
+ * Minimal interface for tool management APIs (not in ExtensionAPI types but available at runtime)
+ */
+interface ToolManagementAPI extends ExtensionAPI {
+  getActiveTools(): string[];
+  setActiveTools(tools: string[]): void;
+}
+
+/**
+ * Competing search tools to disable when override is active
+ */
+const COMPETING_TOOLS = [
+  'search-the-web',
+  'search_and_read', 
+  'google_search'
+];
+
+/**
+ * Anthropic's native web search tool type (injected server-side)
+ */
+const NATIVE_SEARCH_TYPE = 'web_search_20250305';
+
+/**
+ * In-memory override state
+ */
+let overrideEnabled = false;
+let originalTools: string[] | null = null;
+let beforeProviderRequestHandler: ((event: any) => any) | null = null;
+
+/**
+ * Enable override mode:
+ * - Store current tool list
+ * - Filter out competing search tools via setActiveTools()
+ * - Register before_provider_request hook to strip Anthropic native search
+ */
+export function enableOverride(pi: ExtensionAPI): void {
+  const piWithTools = pi as ToolManagementAPI;
+  
+  if (overrideEnabled) {
+    debugLog('override', 'Override already enabled');
+    return;
+  }
+  
+  // Store original tool list
+  try {
+    originalTools = piWithTools.getActiveTools();
+    debugLog('override', `Stored ${originalTools.length} original tools`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    debugLog('override', `Failed to get active tools: ${message}`);
+    return;
+  }
+  
+  // Filter out competing search tools
+  const filteredTools = originalTools.filter(
+    tool => !COMPETING_TOOLS.includes(tool)
+  );
+  
+  try {
+    piWithTools.setActiveTools(filteredTools);
+    overrideEnabled = true;
+    debugLog('override', `Override enabled: ${originalTools.length} → ${filteredTools.length} tools`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    debugLog('override', `Failed to set active tools: ${message}`);
+    return;
+  }
+  
+  // Register before_provider_request hook to strip Anthropic native search
+  beforeProviderRequestHandler = (event: any) => {
+    if (!overrideEnabled) {
+      return event.payload;
+    }
+    
+    const payload = event.payload as Record<string, unknown>;
+    if (Array.isArray(payload.tools)) {
+      const toolsBefore = (payload.tools as any[]).length;
+      payload.tools = (payload.tools as any[]).filter(
+        (t: any) => t.type !== NATIVE_SEARCH_TYPE
+      );
+      const toolsAfter = (payload.tools as any[]).length;
+      
+      if (toolsBefore !== toolsAfter) {
+        debugLog('override', `Stripped ${toolsBefore - toolsAfter} native search tool(s) from provider request`);
+      }
+    }
+    
+    return payload;
+  };
+  
+  try {
+    pi.on('before_provider_request', beforeProviderRequestHandler);
+    debugLog('override', 'Registered before_provider_request hook');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    debugLog('override', `Failed to register before_provider_request hook: ${message}`);
+  }
+}
+
+/**
+ * Disable override mode:
+ * - Restore original tool list
+ * - Unregister before_provider_request hook
+ */
+export function disableOverride(pi: ExtensionAPI): void {
+  const piWithTools = pi as ToolManagementAPI;
+  
+  if (!overrideEnabled) {
+    debugLog('override', 'Override not enabled');
+    return;
+  }
+  
+  // Unregister before_provider_request hook
+  if (beforeProviderRequestHandler) {
+    try {
+      // Note: Pi API doesn't support removing event listeners
+      // We just set the handler reference to null so it stops filtering
+      beforeProviderRequestHandler = null;
+      debugLog('override', 'Unregistered before_provider_request hook');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      debugLog('override', `Failed to unregister hook: ${message}`);
+    }
+  }
+  
+  // Restore original tools
+  if (originalTools) {
+    try {
+      piWithTools.setActiveTools(originalTools);
+      debugLog('override', `Restored ${originalTools.length} original tools`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      debugLog('override', `Failed to restore tools: ${message}`);
+    }
+  }
+  
+  overrideEnabled = false;
+  originalTools = null;
+}
+
+/**
+ * Check if override is currently enabled
+ */
+export function isOverrideEnabled(): boolean {
+  return overrideEnabled;
+}
+
+/**
+ * Get the stored original tool list (for session persistence)
+ */
+export function getOriginalTools(): string[] | null {
+  return originalTools;
+}
+
+/**
+ * Clear override state (called on session_end)
+ */
+export function clearOverride(): void {
+  overrideEnabled = false;
+  originalTools = null;
+  beforeProviderRequestHandler = null;
+  debugLog('override', 'Override state cleared');
+}
+
+/**
+ * Persist override setting to config file
+ */
+export function persistOverride(): void {
+  try {
+    const config = loadConfig();
+    config.override = true;
+    saveConfig(config);
+    debugLog('override', 'Override persisted to config');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    debugLog('override', `Failed to persist override: ${message}`);
+  }
+}
+
+/**
+ * Clear persisted override setting from config file
+ */
+export function clearPersistedOverride(): void {
+  try {
+    const config = loadConfig();
+    delete config.override;
+    saveConfig(config);
+    debugLog('override', 'Override cleared from config');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    debugLog('override', `Failed to clear persisted override: ${message}`);
+  }
+}
+
+/**
+ * Check if override should be auto-enabled from config
+ */
+export function shouldAutoEnableOverride(): boolean {
+  try {
+    const config = loadConfig();
+    return config.override === true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    debugLog('override', `Failed to check auto-enable: ${message}`);
+    return false;
+  }
+}
