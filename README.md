@@ -19,9 +19,18 @@ Google's Gemini CLI includes `google_web_search` — a grounded search tool that
 
 ## Installation
 
-1. Copy extension files to the extensions directory:
+### Option 1: npm (recommended)
+
 ```bash
-# For GSD-2
+cd ~/.pi/agent/extensions
+npm install @skdev-ai/pi-gemini-cli-search
+```
+
+### Option 2: Manual
+
+```bash
+# Copy source files
+mkdir -p ~/.pi/agent/extensions/gemini-cli-search
 cp src/*.ts ~/.pi/agent/extensions/gemini-cli-search/
 
 # Install dependencies
@@ -29,9 +38,10 @@ cd ~/.pi/agent/extensions/gemini-cli-search
 npm install eventsource-parser@3.0.6
 ```
 
-2. Start GSD and run `/gcs-install-a2a` to set up the A2A server.
+### Setup
 
-3. Search: `Use the gemini_cli_search tool to search for: <your query>`
+1. Start GSD and run `/gcs-install-a2a` to set up the A2A server.
+2. Search: `Use the gemini_cli_search tool to search for: <your query>`
 
 ## Transport Modes
 

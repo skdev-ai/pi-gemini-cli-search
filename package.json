@@ -1,31 +1,55 @@
 {
-  "name": "gemini-cli-search",
+  "name": "@skdev-ai/pi-gemini-cli-search",
   "version": "0.1.0",
-  "description": "Pi extension for web search via Gemini CLI with resolved source URLs",
+  "description": "Pi/GSD extension providing grounded web search via Gemini CLI's A2A and ACP protocols. Uses your existing Google AI Pro subscription.",
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/index.ts",
+  "pi": {
+    "extensions": [
+      "src/index.ts"
+    ]
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "gsd",
+    "extension",
+    "gemini-cli",
+    "search",
+    "a2a",
+    "acp"
+  ],
+  "author": "skdev-ai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/skdev-ai/pi-gemini-cli-search"
+  },
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.perf.test.ts",
+    "!src/run-tests.ts",
+    "README.md"
+  ],
   "scripts": {
     "test": "npm run test:vitest && npm run test:native",
     "test:vitest": "npx vitest run",
     "test:native": "npx tsx src/run-tests.ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [
-    "pi",
-    "extension",
-    "gemini-cli",
-    "search"
-  ],
-  "author": "",
-  "license": "MIT",
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "^0.52.0",
+    "@sinclair/typebox": "^0.34.41"
+  },
+  "dependencies": {
+    "eventsource-parser": "3.0.6"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.0"
-  },
-  "dependencies": {
-    "eventsource-parser": "3.0.6",
+    "vitest": "^4.1.0",
     "@sinclair/typebox": "^0.34.48"
   }
 }
