@@ -12,6 +12,8 @@ import { homedir } from 'node:os';
 import type { A2AServerState, SearchError } from './types.js';
 import { getA2APackageRoot } from './a2a-path.js';
 import { checkA2APatched } from './availability.js';
+import { isPortInUse, isServerHealthy } from './port-check.js';
+import { debugLog } from './logger.js';
 
 // ============================================================================
 // Constants
@@ -71,10 +73,10 @@ function pushToRingBuffer(buffer: string[], line: string, maxLength: number = RI
 // ============================================================================
 
 /**
- * Logs a message with [A2A Lifecycle] prefix
+ * Logs a debug message (hidden unless GCS_DEBUG=1, writes to file)
  */
 function log(message: string): void {
-  console.log(`[A2A Lifecycle] ${message}`);
+  debugLog('lifecycle', message);
 }
 
 /**
@@ -130,6 +132,39 @@ export async function startServer(): Promise<void> {
   if (serverState.status === 'running') {
     log('Server already running, rejecting duplicate start request');
     throw createSearchError('SEARCH_FAILED', 'Server is already running');
+  }
+
+  // Fix 10: Check for existing A2A server before spawning
+  log(`Checking for existing A2A server on port ${A2A_PORT}...`);
+  
+  // Health check first - authoritative test for A2A server
+  const healthy = await isServerHealthy(A2A_PORT);
+  if (healthy) {
+    log('Port check result: Healthy A2A server detected, reusing existing server');
+    // Mark as running without spawning
+    startTime = Date.now();
+    updateState({ 
+      status: 'running',
+      uptime: 0,
+    });
+    
+    // Start uptime timer
+    uptimeTimer = setInterval(() => {
+      if (startTime && serverState.status === 'running') {
+        updateState({ uptime: Date.now() - startTime });
+      }
+    }, 1000);
+    
+    return; // Reuse existing server
+  }
+  
+  // Health check failed, but port might still be in use by foreign process
+  const portInUse = await isPortInUse(A2A_PORT);
+  log(`Port check result: Port ${portInUse ? 'IN USE' : 'available'}`);
+  
+  if (portInUse) {
+    log(`Port ${A2A_PORT} is in use but server is not healthy. User should kill the process manually.`);
+    throw createSearchError('A2A_PORT_CONFLICT', `Port ${A2A_PORT} is already in use by another process. Please kill the process using this port and retry.`);
   }
 
   // Create startup promise for concurrent lock
