@@ -434,8 +434,8 @@ function verifyPatches(ctx: InstallerContext): void {
  * ```typescript
  * await installA2AServer({
  *   ui: {
- *     notify: (msg) => console.log(msg),
- *     confirm: async (msg) => window.confirm(msg)
+ *     notify: (msg) => ctx.ui.notify(msg),
+ *     confirm: async (msg, opts) => ctx.ui.confirm(msg, opts)
  *   }
  * });
  * ```
