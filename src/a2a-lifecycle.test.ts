@@ -32,6 +32,12 @@ vi.mock('./availability.js', () => ({
   checkA2APatched: vi.fn(() => true),
 }));
 
+// Mock port-check to return false immediately (avoids fake timer conflicts)
+vi.mock('./port-check.js', () => ({
+  isPortInUse: vi.fn().mockResolvedValue(false),
+  isServerHealthy: vi.fn().mockResolvedValue(false),
+}));
+
 import { spawn } from 'node:child_process';
 import { checkA2APatched } from './availability.js';
 
@@ -51,11 +57,20 @@ function createMockChildProcess(): ChildProcess {
   (mock as any).pid = 12345;
   (mock as any).kill = vi.fn(() => true);
   (mock as any).killed = false;
+  // Fix 13: Add unref() method for detached process support
+  (mock as any).unref = vi.fn();
   
   return mock as ChildProcess;
 }
 
 describe('A2A Lifecycle Module', () => {
+  // Helper to flush microtask queue for async port checks
+  async function flushMicrotasks(ticks = 5) {
+    for (let i = 0; i < ticks; i++) {
+      await Promise.resolve();
+    }
+  }
+  
   beforeEach(() => {
     // Reset all mocks and state before each test
     vi.clearAllMocks();
@@ -259,7 +274,6 @@ describe('A2A Lifecycle Module', () => {
     });
 
     it('should timeout if ready marker not seen within 30s', async () => {
-      vi.useFakeTimers();
       
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
@@ -267,7 +281,6 @@ describe('A2A Lifecycle Module', () => {
       const startPromise = lifecycle.startServer();
 
       // Advance time past timeout (30s)
-      vi.advanceTimersByTime(30000);
 
       await expect(startPromise).rejects.toMatchObject({
         type: 'A2A_STARTUP_TIMEOUT',
@@ -275,16 +288,17 @@ describe('A2A Lifecycle Module', () => {
 
       expect(mockChild.kill).toHaveBeenCalledWith('SIGKILL');
 
-      vi.useRealTimers();
     }, 35000); // Give test 35s timeout
 
     it('should handle process exit during startup', async () => {
-      vi.useFakeTimers();
       
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
 
       const startPromise = lifecycle.startServer();
+      
+      // Let async operations (port check) complete before emitting events
+      await flushMicrotasks();
 
       // Emit exit before ready
       mockChild.emit('exit', 1, null);
@@ -298,7 +312,6 @@ describe('A2A Lifecycle Module', () => {
       expect(state.status).toBe('error');
       expect(state.exitCode).toBe(1);
       
-      vi.useRealTimers();
     });
 
     it('should handle spawn errors', async () => {
@@ -319,7 +332,6 @@ describe('A2A Lifecycle Module', () => {
     });
 
     it('should prevent concurrent spawns with lock', async () => {
-      vi.useFakeTimers();
       
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
@@ -328,7 +340,7 @@ describe('A2A Lifecycle Module', () => {
       const startPromise1 = lifecycle.startServer();
       
       // Wait a tick for state to be set to 'starting'
-      await Promise.resolve();
+      await flushMicrotasks();
 
       // Second call should wait for the first, not reject immediately
       // The concurrent lock makes it wait, not reject
@@ -345,13 +357,11 @@ describe('A2A Lifecycle Module', () => {
       const state = lifecycle.getServerState();
       expect(state.status).toBe('running');
       
-      vi.useRealTimers();
     });
   });
 
   describe('stopServer()', () => {
     it('should send SIGTERM for graceful shutdown', async () => {
-      vi.useFakeTimers();
       
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
@@ -359,7 +369,10 @@ describe('A2A Lifecycle Module', () => {
       // Start server first
       const startPromise = lifecycle.startServer();
       
-      // Emit ready immediately (fake timers)
+      // Let async port check complete before emitting ready
+      await flushMicrotasks();
+      
+      // Emit ready 
       mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
       await startPromise;
 
@@ -380,7 +393,6 @@ describe('A2A Lifecycle Module', () => {
       expect(state.status).toBe('stopped');
       expect(state.exitCode).toBeNull();
       
-      vi.useRealTimers();
     });
 
     it('should escalate to SIGKILL after 3s timeout', async () => {
@@ -390,7 +402,10 @@ describe('A2A Lifecycle Module', () => {
       // Start server
       const startPromise = lifecycle.startServer();
       
-      // Emit ready immediately
+      // Let async port check complete
+      await flushMicrotasks();
+      
+      // Emit ready
       mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
       await startPromise;
 
@@ -633,7 +648,6 @@ describe('A2A Lifecycle Module', () => {
 
   describe('Concurrent Lock', () => {
     it('should block second caller until first completes', async () => {
-      vi.useFakeTimers();
       
       const mockChild = createMockChildProcess();
       mockedSpawn.mockReturnValue(mockChild);
@@ -646,7 +660,7 @@ describe('A2A Lifecycle Module', () => {
       const start2 = lifecycle.startServer().then(() => { secondResolved = true; }).catch(() => {});
 
       // Wait a tick for state to update
-      await Promise.resolve();
+      await flushMicrotasks();
 
       // Emit ready
       mockChild.stdout?.emit('data', Buffer.from('Agent Server started\n'));
@@ -657,7 +671,6 @@ describe('A2A Lifecycle Module', () => {
       expect(firstResolved).toBe(true);
       expect(secondResolved).toBe(true);
       
-      vi.useRealTimers();
     });
 
     it('should release lock on error', async () => {

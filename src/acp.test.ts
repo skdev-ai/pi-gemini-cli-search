@@ -311,12 +311,12 @@ describe('ACP Transport Module', () => {
   });
 
   describe('observability', () => {
-    it('logs with [acp] prefix', async () => {
+    it('uses debugLog from logger module', async () => {
       const fs = await import('node:fs/promises');
       const content = await fs.readFile(new URL('./acp.ts', import.meta.url), 'utf-8');
       
-      expect(content).toContain("[acp]");
-      expect(content).toContain('console.log');
+      expect(content).toContain("debugLog('acp'");
+      expect(content).not.toContain('console.log');
     });
 
     it('tracks lastError in getAcpState', async () => {

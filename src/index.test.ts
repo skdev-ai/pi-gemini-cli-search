@@ -257,6 +257,13 @@ describe('session_start auto-start', () => {
     vi.clearAllMocks();
     extensionFactory(mockApi as any);
   });
+  
+  // Helper to flush microtask queue for async port checks
+  async function flushMicrotasks(ticks = 5) {
+    for (let i = 0; i < ticks; i++) {
+      await Promise.resolve();
+    }
+  }
 
   it('calls startServer on session_start when available', async () => {
     const handlers = mockApi.eventHandlers.get('session_start');
@@ -264,48 +271,54 @@ describe('session_start auto-start', () => {
     expect(handlers!.length).toBeGreaterThan(0);
     
     const handler = handlers![0];
-    await handler();
+    const mockCtx = { ui: { notify: vi.fn() } };
+    await handler({}, mockCtx);
     
-    await new Promise(resolve => setTimeout(resolve, 10));
+    await flushMicrotasks();
     
     expect(startServer).toHaveBeenCalledTimes(1);
   });
 
-  it('logs success message when startServer resolves', async () => {
-    const consoleSpy = vi.spyOn(console, 'log');
-    (startServer as any).mockResolvedValueOnce(undefined);
-    
+  it('shows status notification on session_start', async () => {
     const handlers = mockApi.eventHandlers.get('session_start');
     expect(handlers).toBeDefined();
     expect(handlers!.length).toBeGreaterThan(0);
     
     const handler = handlers![0];
-    await handler();
+    const mockCtx = { ui: { notify: vi.fn() } };
+    await handler({}, mockCtx);
     
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await flushMicrotasks();
     
-    expect(consoleSpy).toHaveBeenCalledWith('[gemini-cli-search] A2A server started successfully');
-    
-    consoleSpy.mockRestore();
+    // Fix 14: Uses ctx.ui.notify() instead of console.log
+    expect(mockCtx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining('gemini-cli-search loaded'),
+      'info'
+    );
   });
 
-  it('logs error message when startServer rejects', async () => {
-    const consoleErrorSpy = vi.spyOn(console, 'error');
-    const testError = new Error('Test startup failure');
-    (startServer as any).mockRejectedValueOnce(testError);
+  it('shows warning notification when unavailable', async () => {
+    // Mock availability to return false
+    vi.mocked(await import('./availability.js')).checkAvailability.mockReturnValueOnce({
+      available: false,
+      reason: 'CLI_NOT_FOUND',
+    });
     
     const handlers = mockApi.eventHandlers.get('session_start');
     expect(handlers).toBeDefined();
     expect(handlers!.length).toBeGreaterThan(0);
     
     const handler = handlers![0];
-    await handler();
+    const mockCtx = { ui: { notify: vi.fn() } };
+    await handler({}, mockCtx);
     
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await flushMicrotasks();
     
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[gemini-cli-search] A2A startup failed:', testError);
-    
-    consoleErrorSpy.mockRestore();
+    // Fix 14: Shows warning when unavailable
+    expect(mockCtx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining('gemini-cli-search unavailable'),
+      'warning'
+    );
   });
 });
 
