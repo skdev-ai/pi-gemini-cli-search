@@ -49,6 +49,7 @@ import { executeSearchA2A } from './a2a-transport.js';
 import { getServerState } from './a2a-lifecycle.js';
 import { executeSearchCold } from './cold-spawn.js';
 import { executeSearchAcp } from './acp.js';
+import { debugLog } from './logger.js';
 
 // ============================================================================
 // Constants
@@ -89,10 +90,10 @@ const transportState: TransportState = {
 };
 
 /**
- * Logs a message with [transport] prefix
+ * Logs a debug message (hidden unless GCS_DEBUG=1)
  */
 function log(message: string): void {
-  console.log(`[transport] ${message}`);
+  debugLog('transport', message);
 }
 
 /**
@@ -300,7 +301,15 @@ export async function executeSearch(
       const searchError = (error && typeof error === 'object' && 'type' in error) 
         ? (error as SearchError)
         : createSearchError('SEARCH_FAILED', error instanceof Error ? error.message : String(error));
-      log(`A2A failed with ${searchError.type}: ${searchError.message}, falling back to cold`);
+      
+      // CRITICAL FIX 12: Check if this was a USER abort, not a transport failure
+      // If the caller's signal is aborted, throw immediately instead of cascading
+      if (signal?.aborted) {
+        log('User aborted during A2A search, stopping cascade (not falling through to ACP/cold)');
+        throw createSearchError('TIMEOUT', 'Search cancelled by user');
+      }
+      
+      log(`A2A failed with ${searchError.type}: ${searchError.message}, falling back to ACP`);
       if (onUpdate) {
         onUpdate('[A2A] Failed, trying alternative method…');
       }
@@ -308,7 +317,7 @@ export async function executeSearch(
       cacheError('a2a', searchError);
       transportState.activeTransport = 'acp'; // Will be overwritten by actual result
       
-      // Continue to ACP and cold transport below
+      // Continue to ACP transport below
     }
   }
   
@@ -355,6 +364,14 @@ export async function executeSearch(
       const searchError = (error && typeof error === 'object' && 'type' in error) 
         ? (error as SearchError)
         : createSearchError('SEARCH_FAILED', error instanceof Error ? error.message : String(error));
+      
+      // CRITICAL FIX 12: Check if this was a USER abort, not a transport failure
+      // If the caller's signal is aborted, throw immediately instead of cascading
+      if (signal?.aborted) {
+        log('User aborted during ACP search, stopping cascade (not falling through to cold)');
+        throw createSearchError('TIMEOUT', 'Search cancelled by user');
+      }
+      
       log(`ACP failed with ${searchError.type}: ${searchError.message}, falling back to cold spawn`);
       if (onUpdate) {
         onUpdate('[ACP] Failed, trying cold spawn…');
