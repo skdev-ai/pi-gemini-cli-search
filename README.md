@@ -1,6 +1,6 @@
 # gemini-cli-search
 
-A GSD-2 / Pi Mono extension that provides web search via Gemini CLI, leveraging Google's AI Pro subscription OAuth authentication. Returns AI-synthesized answers with resolved source URLs.
+A [GSD-2](https://github.com/gsd-build/gsd-2) / [Pi Mono](https://github.com/nicobrinkkemper/pi-mono) extension that provides web search via Gemini CLI, leveraging Google's AI Pro subscription OAuth authentication. Returns AI-synthesized answers with resolved source URLs.
 
 ## Why This Approach
 
@@ -9,6 +9,29 @@ Google's Gemini CLI includes `google_web_search` — a grounded search tool that
 **Approach to ToS:** The extension spawns official Google binaries (`gemini` CLI and `@google/gemini-cli-a2a-server`) that use the same `@google/gemini-cli-core` library and OAuth credentials as regular Gemini CLI usage. It communicates through Google's own Agent-to-Agent (A2A) and Agent Client Protocol (ACP) implementations built into the Gemini CLI. All API requests use standard CLI traffic patterns — same User-Agent, same auth flow, same endpoints. No reverse-engineering, no direct API calls, no credential extraction.
 
 > **⚠️ DISCLAIMER:** The author is not a lawyer. Google's [ToS](https://geminicli.com/docs/resources/tos-privacy/) states that "directly accessing the services powering Gemini CLI using third-party software" is a violation. This extension uses Google's official A2A and ACP protocols through official Google binaries — whether this constitutes "third-party access" is [under discussion](https://github.com/google-gemini/gemini-cli/discussions/22970). A Google maintainer has [indicated](https://github.com/google-gemini/gemini-cli/discussions/22970#discussioncomment-16198982) that ACP-based integration "sounds like a legitimate use," but this is not a policy commitment. **Use at your own risk.** Starting March 25, 2026, Google is adding abuse detection and traffic prioritization that may affect this extension.
+
+## Prerequisites
+
+- **Gemini CLI** installed globally: `npm install -g @google/gemini-cli`
+- **Google OAuth** authenticated: run `gemini` once to complete browser auth flow
+- **OAuth credentials** at `~/.gemini/oauth_creds.json`
+- **[GSD-2](https://github.com/gsd-build/gsd-2)** (v2.30.0+) or [Pi Mono](https://github.com/nicobrinkkemper/pi-mono)
+
+## Installation
+
+1. Copy extension files to the extensions directory:
+```bash
+# For GSD-2
+cp src/*.ts ~/.pi/agent/extensions/gemini-cli-search/
+
+# Install dependencies
+cd ~/.pi/agent/extensions/gemini-cli-search
+npm install eventsource-parser@3.0.6
+```
+
+2. Start GSD and run `/gcs-install-a2a` to set up the A2A server.
+
+3. Search: `Use the gemini_cli_search tool to search for: <your query>`
 
 ## Transport Modes
 
@@ -110,29 +133,6 @@ Transport Layer:
 - Cold Consecutive Failures: 0
 ```
 
-## Prerequisites
-
-- **Gemini CLI** installed globally: `npm install -g @google/gemini-cli`
-- **Google OAuth** authenticated: run `gemini` once to complete browser auth flow
-- **OAuth credentials** at `~/.gemini/oauth_creds.json`
-- **GSD-2** (v2.30.0+) or Pi Mono
-
-## Installation
-
-1. Copy extension files to the extensions directory:
-```bash
-# For GSD-2
-cp src/*.ts ~/.pi/agent/extensions/gemini-cli-search/
-
-# Install dependencies
-cd ~/.pi/agent/extensions/gemini-cli-search
-npm install eventsource-parser@3.0.6
-```
-
-2. Start GSD and run `/gcs-install-a2a` to set up the A2A server.
-
-3. Search: `Use the gemini_cli_search tool to search for: <your query>`
-
 ## Architecture
 
 ```
@@ -206,19 +206,20 @@ The A2A server provides significant advantages over cold spawn and ACP:
 
 The A2A server (`@google/gemini-cli-a2a-server@0.34.0`) requires two patches applied to the bundled `dist/a2a-server.mjs` file. The `/gcs-install-a2a` command applies these automatically.
 
-**Patch 1: Headless mode fix** — The server detects non-TTY environments (spawned by extension) as headless and refuses to use cached OAuth credentials. This patch makes it always report as interactive, allowing it to read existing cached tokens from `~/.gemini/oauth_creds.json`. No interactive prompt is needed — the tokens are already cached.
+**Patch 1: Headless mode fix** — The server's TTY detection prevents it from reading already-cached OAuth tokens at `~/.gemini/oauth_creds.json` when spawned as a subprocess (non-interactive). This is the same issue any IDE integration would face when spawning the A2A server programmatically. The patch allows the server to use existing cached credentials without requiring an interactive terminal. No credentials are generated or prompted for — they must already exist from a prior `gemini` login.
 
-**Patch 2: Per-request model override** — Allows clients to pass `_model` in message metadata to switch models per-request without restarting the server. The extension uses this to force `gemini-3-flash-preview` for optimal search performance.
+**Patch 2: Per-request model override** — Allows clients to pass `_model` in message metadata to switch models per-request without restarting the server. The extension uses this to force `gemini-3-flash-preview` for optimal search performance. The A2A server hardcodes `gemini-3-pro-preview` ([source](https://github.com/google-gemini/gemini-cli/blob/main/packages/a2a-server/src/config/config.ts)) with no native way to override per-request. This is the only patch that would remain if version pinning is lifted.
 
 Both patches are verified after application. If verification fails, the installer restores from backup automatically. **Patches are lost on `npm update`** — run `/gcs-install-a2a` again after updating the A2A server package.
 
 ## Known Limitations
 
-- **Version pinning** — A2A server pinned to v0.34.0. Future published versions may add `clientName` to User-Agent headers (commit `949e85ca5` on GitHub main, not yet published), changing the traffic fingerprint. Do not upgrade without checking.
+- **Version pinning** — A2A server pinned to v0.34.0. Version 0.35.0+ adds `clientName: 'a2a-server'` to the User-Agent header ([commit](https://github.com/google-gemini/gemini-cli/commit/949e85ca5)), identifying traffic as coming from the A2A server. If Google confirms A2A+OAuth is legitimate use, the version pin can be lifted and only Patch 2 (model override) remains needed.
 - **Patches required** — Two patches on the A2A server bundle are lost on `npm update`. Re-run `/gcs-install-a2a` after any update.
-- **`excludeTools` is a denylist** — The restricted workspace blocks known tools, but new tools added by Google in future versions would be auto-approved by YOLO mode. Version pinning is the primary safety net.
+- **`excludeTools` is a denylist** — The restricted workspace blocks known tools, but new tools added by Google in future versions would be auto-approved by YOLO mode. Version pinning is the primary safety net. Google is migrating from `ApprovalMode.YOLO` to a policy engine with `allowedTools` ([0.36.0 nightly](https://www.npmjs.com/package/@google/gemini-cli-a2a-server/v/0.36.0-nightly.20260318.e2658ccda)), which may offer more granular control in the future.
 - **A2A server task accumulation** — Completed tasks are never cleaned up from the server's in-memory store (no delete/TTL in the reference implementation). Negligible for search (~50MB per 500 searches), but the server can be restarted via session restart if needed.
 - **ACP session memory** — Gemini CLI has no `session/close`. The ACP process is restarted after 20 ACP-routed queries to reset context window and memory.
+- **Google policy uncertainty** — Google is [adding abuse detection and traffic prioritization](https://github.com/google-gemini/gemini-cli/discussions/22970) starting March 25, 2026. The impact on this extension's OAuth-based usage is unclear. See the disclaimer above.
 
 ## License & Attribution
 
