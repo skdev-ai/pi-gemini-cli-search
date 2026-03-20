@@ -2,20 +2,25 @@
  * Centralized logging utility for gemini-cli-search extension.
  * 
  * Usage:
- * - debugLog(module, message, ...args) - Written to ~/.pi/agent/extensions/gemini-cli-search/debug.log when GCS_DEBUG=1
+ * - debugLog(module, message, ...args) - Written to <extension-dir>/.debug/debug.log when GCS_DEBUG=1
  * - All visible output must use ctx.ui.notify() - no console.log anywhere
  * 
  * @module logger
  */
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { cwd } from 'node:process';
 
-// Debug log file path
-const LOG_DIR = join(homedir(), '.pi', 'agent', 'extensions', 'gemini-cli-search');
+// Resolve extension directory from import.meta.url (works with ES modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const EXT_DIR = join(__dirname, '..'); // Go up from src/ to extension root
+
+// Debug log file path (in extension directory, not hardcoded ~/.pi path)
+const LOG_DIR = join(EXT_DIR, '.debug');
 const LOG_FILE = join(LOG_DIR, 'debug.log');
 
 /**

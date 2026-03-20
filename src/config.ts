@@ -1,16 +1,19 @@
 import * as fs from 'fs';
-import * as path from 'path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { debugLog } from './logger.js';
 
-/**
- * Config file path: ~/.pi/agent/extensions/gemini-cli-search/config.json
- */
-const CONFIG_DIR = path.join(
-  process.env.HOME || '',
-  '.pi/agent/extensions/gemini-cli-search'
-);
+// Resolve extension directory from import.meta.url (works with ES modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const EXT_DIR = join(__dirname, '..'); // Go up from src/ to extension root
 
-const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+/**
+ * Config file path: <extension-dir>/config.json
+ */
+const CONFIG_DIR = EXT_DIR;
+
+const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 /**
  * Config schema - extensible for future settings
