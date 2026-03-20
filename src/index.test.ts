@@ -16,6 +16,7 @@ vi.mock('./a2a-lifecycle.js', () => ({
     stderrBuffer: [],
   })),
   stopServer: vi.fn(),
+  resetManualStopFlag: vi.fn(),
 }));
 
 // Mock availability check to return A2A ready
