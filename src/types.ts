@@ -64,7 +64,9 @@ export interface SearchError {
     /** Detected when port 41242 is already in use by another process - Fix 10 */
     | 'A2A_PORT_CONFLICT'
     /** Detected when ACP warm subprocess fails to boot within timeout - S01 */
-    | 'ACP_BOOT_FAILED';
+    | 'ACP_BOOT_FAILED'
+    /** Detected when server respawn after health check failure fails - Bugfix 260320-1 */
+    | 'A2A_RESPAWN_FAILED';
   /** Human-readable error message */
   message: string;
 }

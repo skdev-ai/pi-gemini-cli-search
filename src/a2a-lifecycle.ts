@@ -53,6 +53,9 @@ let startupPromise: Promise<void> | null = null;
 /** Uptime timer reference */
 let uptimeTimer: NodeJS.Timeout | null = null;
 
+/** Health check interval reference (for reused servers) */
+let healthCheckInterval: NodeJS.Timeout | null = null;
+
 // ============================================================================
 // Ring Buffer Implementation
 // ============================================================================
@@ -101,6 +104,71 @@ function clearUptimeTimer(): void {
     clearInterval(uptimeTimer);
     uptimeTimer = null;
   }
+}
+
+/**
+ * Clears the health check interval if running
+ */
+function clearHealthCheckInterval(): void {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    healthCheckInterval = null;
+    log('Health check interval cleared');
+  }
+}
+
+/**
+ * Starts periodic health monitoring for reused servers.
+ * Checks every 30s, respawns if health check fails.
+ */
+function startHealthMonitoring(): void {
+  // Clear any existing health check
+  clearHealthCheckInterval();
+  
+  // Start health check interval (30s)
+  healthCheckInterval = setInterval(async () => {
+    try {
+      const healthy = await isServerHealthy(A2A_PORT);
+      
+      if (!healthy) {
+        log('Health check failed: server no longer responding, respawning...');
+        
+        // Clear health check to prevent multiple concurrent checks
+        clearHealthCheckInterval();
+        clearUptimeTimer();
+        
+        // Update state to stopped
+        updateState({ 
+          status: 'stopped',
+          uptime: null,
+        });
+        
+        // Reset child process reference (it was already null for reused server)
+        childProcess = null;
+        startTime = null;
+        
+        // Immediately respawn - this will spawn a new process with full monitoring
+        try {
+          await startServer();
+          log('Server respawned successfully after health check failure');
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log(`Server respawn failed: ${message}`);
+          updateState({ 
+            status: 'error',
+            lastError: createSearchError('A2A_RESPAWN_FAILED', `Respawn after health check failure failed: ${message}`)
+          });
+        }
+      } else {
+        log('Health check passed');
+      }
+    } catch (err) {
+      // Health check itself failed (network error, etc.) - treat as unhealthy
+      log(`Health check error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 30000); // 30 seconds
+  
+  log('Health monitoring started (30s interval)');
 }
 
 // ============================================================================
@@ -154,6 +222,9 @@ export async function startServer(): Promise<void> {
         updateState({ uptime: Date.now() - startTime });
       }
     }, 1000);
+    
+    // Start health monitoring for reused server (no childProcess to monitor)
+    startHealthMonitoring();
     
     return; // Reuse existing server
   }
@@ -381,6 +452,7 @@ export async function stopServer(): Promise<void> {
   log('Stopping A2A server...');
   
   clearUptimeTimer();
+  clearHealthCheckInterval(); // Clear health check for reused servers
   
   if (!childProcess) {
     log('No server process to stop');
