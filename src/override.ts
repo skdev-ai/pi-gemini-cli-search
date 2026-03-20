@@ -115,15 +115,16 @@ export function disableOverride(pi: ExtensionAPI): void {
   }
   
   // Unregister before_provider_request hook
+  // Note: Pi API doesn't support removing event listeners, but the handler
+  // checks overrideEnabled at the start and returns early when false.
+  // Setting this to null is just cleanup - the flag is what actually disables it.
   if (beforeProviderRequestHandler) {
     try {
-      // Note: Pi API doesn't support removing event listeners
-      // We just set the handler reference to null so it stops filtering
       beforeProviderRequestHandler = null;
-      debugLog('override', 'Unregistered before_provider_request hook');
+      debugLog('override', 'before_provider_request hook disabled (flag-based, not unregistered)');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      debugLog('override', `Failed to unregister hook: ${message}`);
+      debugLog('override', `Failed to clear hook reference: ${message}`);
     }
   }
   
