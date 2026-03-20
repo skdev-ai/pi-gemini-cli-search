@@ -19,6 +19,9 @@
     "a2a",
     "acp"
   ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "author": "skdev-ai",
   "license": "MIT",
   "repository": {
