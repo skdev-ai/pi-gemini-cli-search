@@ -61,6 +61,8 @@ export interface SearchError {
     | 'A2A_HUNG'
     /** Detected when A2A server cannot be reached (connection refused/timeout) - S05 */
     | 'A2A_CONNECTION_REFUSED'
+    /** Detected when port 41242 is already in use by another process - Fix 10 */
+    | 'A2A_PORT_CONFLICT'
     /** Detected when ACP warm subprocess fails to boot within timeout - S01 */
     | 'ACP_BOOT_FAILED';
   /** Human-readable error message */
