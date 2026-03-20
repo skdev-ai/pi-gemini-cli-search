@@ -9,6 +9,7 @@ import { startServer, getServerState, stopServer } from "./a2a-lifecycle.js";
 import { getTransportState } from "./transport.js";
 import { getAcpState } from "./acp.js";
 import { debugLog } from "./logger.js";
+import { enableOverride, disableOverride, shouldAutoEnableOverride, persistOverride, clearPersistedOverride, clearOverride } from "./override.js";
 
 /**
  * Gemini CLI Search Extension
@@ -172,120 +173,189 @@ export default function (pi: ExtensionAPI) {
     },
   });
   
-  // Register gcs-install-a2a command (R013)
-  pi.registerCommand('gcs-install-a2a', {
-    description: 'Install and patch A2A server for search transport',
-    handler: async (_args: any, ctx: any) => {
+  // Register unified /gcs command with subcommands
+  pi.registerCommand('gcs', {
+    description: 'gemini-cli-search: status | install-a2a | override [true|false] | server [start|stop|restart]',
+    handler: async (args: any, ctx: any) => {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const subcommand = parts[0];
+      
       try {
-        await installA2AServer({
-          ui: {
-            notify: (message) => ctx.ui.notify(message),
-            confirm: async (message, options) => {
-              // GSD's ctx.ui.confirm(title, detail) takes two strings, not an options object
-              const title = options?.title || 'Confirm Installation';
-              const detail = options?.detail || message;
-              const result = await ctx.ui.confirm(title, detail);
-              return result;
-            },
-          },
-        });
+        if (subcommand === 'status') {
+          // Existing /gcs-status logic
+          const a2aState = getServerState();
+          const transportState = getTransportState();
+          const acpState = getAcpState();
+          
+          const lines: string[] = [];
+          lines.push(`**A2A Server Status:**`);
+          lines.push(`- Status: \`${a2aState.status}\``);
+          lines.push(`- Port: \`${a2aState.port}\``);
+          
+          if (a2aState.uptime && a2aState.uptime > 0) {
+            lines.push(`- Uptime: \`${Math.round(a2aState.uptime / 1000)}s\``);
+          }
+          
+          lines.push(`- Search Count: \`${a2aState.searchCount}\``);
+          
+          if (a2aState.exitCode !== null) {
+            lines.push(`- Exit Code: \`${a2aState.exitCode}\``);
+          }
+          
+          if (a2aState.lastError) {
+            lines.push(`- Last Error: \`${a2aState.lastError.type}: ${a2aState.lastError.message}\``);
+          }
+          
+          // Show last 10 lines of stderr/stdout buffers if available
+          if (a2aState.stderrBuffer && a2aState.stderrBuffer.length > 0) {
+            const recentStderr = a2aState.stderrBuffer.slice(-10);
+            lines.push(`- Recent Stderr:`);
+            recentStderr.forEach(line => lines.push(`  \`${line}\``));
+          }
+          
+          if (a2aState.stdoutBuffer && a2aState.stdoutBuffer.length > 0) {
+            const recentStdout = a2aState.stdoutBuffer.slice(-10);
+            lines.push(`- Recent Stdout:`);
+            recentStdout.forEach(line => lines.push(`  \`${line}\``));
+          }
+          
+          // Add ACP state
+          lines.push('');
+          lines.push(`**ACP Transport:**`);
+          lines.push(`- Status: \`${acpState.status}\``);
+          lines.push(`- Session Count: \`${acpState.sessionCount}/20\``);
+          if (acpState.uptime && acpState.uptime > 0) {
+            lines.push(`- Uptime: \`${Math.round(acpState.uptime / 1000)}s\``);
+          }
+          if (acpState.lastError) {
+            lines.push(`- Last Error: \`${acpState.lastError.type}\``);
+          }
+          
+          // Add transport layer diagnostics
+          lines.push('');
+          lines.push(`**Transport Layer:**`);
+          lines.push(`- Active Transport: \`${transportState.activeTransport ?? 'none'}\``);
+          lines.push(`- A2A Consecutive Failures: \`${transportState.a2aConsecutiveFailures}\``);
+          lines.push(`- ACP Consecutive Failures: \`${transportState.acpConsecutiveFailures}\``);
+          lines.push(`- Cold Consecutive Failures: \`${transportState.coldConsecutiveFailures}\``);
+          
+          if (transportState.a2aLastError) {
+            const age = Math.round((Date.now() - transportState.a2aLastError.timestamp) / 1000);
+            lines.push(`- A2A Last Error: \`${transportState.a2aLastError.error.type} (${age}s ago)\``);
+          }
+          
+          if (transportState.acpLastError) {
+            const age = Math.round((Date.now() - transportState.acpLastError.timestamp) / 1000);
+            lines.push(`- ACP Last Error: \`${transportState.acpLastError.error.type} (${age}s ago)\``);
+          }
+          
+          if (transportState.coldLastError) {
+            const age = Math.round((Date.now() - transportState.coldLastError.timestamp) / 1000);
+            lines.push(`- Cold Last Error: \`${transportState.coldLastError.error.type} (${age}s ago)\``);
+          }
+          
+          ctx.ui.notify(lines.join('\n'), 'info');
+        }
         
-        // Fix 6: Auto-start A2A server immediately after successful installation
-        ctx.ui.notify('A2A installation complete! Starting server...', 'success');
-        try {
-          await startServer();
-          ctx.ui.notify('A2A server started successfully. Ready to use!', 'success');
-        } catch (startErr) {
-          const startMessage = startErr instanceof Error ? startErr.message : String(startErr);
-          ctx.ui.notify(`Installation succeeded but server failed to start: ${startMessage}`, 'warning');
+        else if (subcommand === 'install-a2a') {
+          // Existing /gcs-install-a2a logic
+          await installA2AServer({
+            ui: {
+              notify: (message) => ctx.ui.notify(message),
+              confirm: async (message, options) => {
+                // GSD's ctx.ui.confirm(title, detail) takes two strings, not an options object
+                const title = options?.title || 'Confirm Installation';
+                const detail = options?.detail || message;
+                const result = await ctx.ui.confirm(title, detail);
+                return result;
+              },
+            },
+          });
+          
+          // Auto-start A2A server immediately after successful installation
+          ctx.ui.notify('A2A installation complete! Starting server...', 'success');
+          try {
+            await startServer();
+            ctx.ui.notify('A2A server started successfully. Ready to use!', 'success');
+          } catch (startErr) {
+            const startMessage = startErr instanceof Error ? startErr.message : String(startErr);
+            ctx.ui.notify(`Installation succeeded but server failed to start: ${startMessage}`, 'warning');
+          }
+        }
+        
+        else if (subcommand === 'override') {
+          const action = parts[1];
+          if (action === 'true') {
+            enableOverride(pi);
+            persistOverride();
+            ctx.ui.notify('gemini-cli-search is now the primary search provider (persistent)', 'info');
+          } else if (action === 'false') {
+            disableOverride(pi);
+            clearPersistedOverride();
+            ctx.ui.notify('Default search providers restored', 'info');
+          } else {
+            ctx.ui.notify('Usage: /gcs override [true|false]', 'warning');
+          }
+        }
+        
+        else if (subcommand === 'server') {
+          const action = parts[1];
+          const serverState = getServerState();
+          
+          if (action === 'start') {
+            if (serverState.status === 'running') {
+              ctx.ui.notify(`A2A server already running on port ${serverState.port}`, 'info');
+            } else {
+              await startServer();
+              ctx.ui.notify('A2A server started successfully', 'success');
+            }
+          }
+          
+          else if (action === 'stop') {
+            if (serverState.status === 'stopped') {
+              ctx.ui.notify('A2A server is not running', 'info');
+            } else {
+              await stopServer();
+              ctx.ui.notify('A2A server stopped', 'info');
+            }
+          }
+          
+          else if (action === 'restart') {
+            await stopServer();
+            await startServer();
+            ctx.ui.notify('A2A server restarted', 'success');
+          }
+          
+          else {
+            ctx.ui.notify('Usage: /gcs server [start|stop|restart]', 'warning');
+          }
+        }
+        
+        else if (!subcommand) {
+          // No subcommand provided - show help
+          ctx.ui.notify(
+            'Usage: /gcs <subcommand>\n\n' +
+            'Subcommands:\n' +
+            '  status          — Show transport and server diagnostics\n' +
+            '  install-a2a     — Install and patch A2A server\n' +
+            '  override true   — Make gemini_cli_search the only search tool\n' +
+            '  override false  — Restore default search tools\n' +
+            '  server start    — Start A2A server\n' +
+            '  server stop     — Stop A2A server\n' +
+            '  server restart  — Restart A2A server',
+            'info'
+          );
+        }
+        
+        else {
+          // Unknown subcommand
+          ctx.ui.notify(`Unknown subcommand: ${subcommand}\nRun /gcs for available subcommands`, 'error');
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        // Extract phase from error if available (prereq/install/workspace/patch/verify)
-        const phase = (error as any)?.phase || 'unknown';
-        const remediation = (error as any)?.remediation || 'Check logs and retry';
-        ctx.ui.notify(`Installation failed (${phase}): ${message}. ${remediation}`, 'error');
-        debugLog('index', `Installation failed (${phase}): ${message}. ${remediation}`);
+        ctx.ui.notify(`Command failed: ${message}`, 'error');
+        debugLog('index', `Command '${subcommand}' failed: ${message}`);
       }
-    },
-  });
-  
-  // Register gcs-status command for A2A server diagnostics
-  pi.registerCommand('gcs-status', {
-    description: 'Show gemini-cli-search transport status and diagnostics',
-    handler: async (_args: any, ctx: any) => {
-      const a2aState = getServerState();
-      const transportState = getTransportState();
-      const acpState = getAcpState();
-      
-      const lines: string[] = [];
-      lines.push(`**A2A Server Status:**`);
-      lines.push(`- Status: \`${a2aState.status}\``);
-      lines.push(`- Port: \`${a2aState.port}\``);
-      
-      if (a2aState.uptime && a2aState.uptime > 0) {
-        lines.push(`- Uptime: \`${Math.round(a2aState.uptime / 1000)}s\``);
-      }
-      
-      lines.push(`- Search Count: \`${a2aState.searchCount}\``);
-      
-      if (a2aState.exitCode !== null) {
-        lines.push(`- Exit Code: \`${a2aState.exitCode}\``);
-      }
-      
-      if (a2aState.lastError) {
-        lines.push(`- Last Error: \`${a2aState.lastError.type}: ${a2aState.lastError.message}\``);
-      }
-      
-      // Show last 10 lines of stderr/stdout buffers if available
-      if (a2aState.stderrBuffer && a2aState.stderrBuffer.length > 0) {
-        const recentStderr = a2aState.stderrBuffer.slice(-10);
-        lines.push(`- Recent Stderr:`);
-        recentStderr.forEach(line => lines.push(`  \`${line}\``));
-      }
-      
-      if (a2aState.stdoutBuffer && a2aState.stdoutBuffer.length > 0) {
-        const recentStdout = a2aState.stdoutBuffer.slice(-10);
-        lines.push(`- Recent Stdout:`);
-        recentStdout.forEach(line => lines.push(`  \`${line}\``));
-      }
-      
-      // Fix 7: Add ACP state
-      lines.push('');
-      lines.push(`**ACP Transport:**`);
-      lines.push(`- Status: \`${acpState.status}\``);
-      lines.push(`- Session Count: \`${acpState.sessionCount}/20\``);
-      if (acpState.uptime && acpState.uptime > 0) {
-        lines.push(`- Uptime: \`${Math.round(acpState.uptime / 1000)}s\``);
-      }
-      if (acpState.lastError) {
-        lines.push(`- Last Error: \`${acpState.lastError.type}\``);
-      }
-      
-      // Add transport layer diagnostics
-      lines.push('');
-      lines.push(`**Transport Layer:**`);
-      lines.push(`- Active Transport: \`${transportState.activeTransport ?? 'none'}\``);
-      lines.push(`- A2A Consecutive Failures: \`${transportState.a2aConsecutiveFailures}\``);
-      lines.push(`- ACP Consecutive Failures: \`${transportState.acpConsecutiveFailures}\``);
-      lines.push(`- Cold Consecutive Failures: \`${transportState.coldConsecutiveFailures}\``);
-      
-      if (transportState.a2aLastError) {
-        const age = Math.round((Date.now() - transportState.a2aLastError.timestamp) / 1000);
-        lines.push(`- A2A Last Error: \`${transportState.a2aLastError.error.type} (${age}s ago)\``);
-      }
-      
-      if (transportState.acpLastError) {
-        const age = Math.round((Date.now() - transportState.acpLastError.timestamp) / 1000);
-        lines.push(`- ACP Last Error: \`${transportState.acpLastError.error.type} (${age}s ago)\``);
-      }
-      
-      if (transportState.coldLastError) {
-        const age = Math.round((Date.now() - transportState.coldLastError.timestamp) / 1000);
-        lines.push(`- Cold Last Error: \`${transportState.coldLastError.error.type} (${age}s ago)\``);
-      }
-      
-      ctx.ui.notify(lines.join('\n'), 'info');
     },
   });
   
@@ -294,6 +364,7 @@ export default function (pi: ExtensionAPI) {
     // Clear cache and reset transport state on session start to prevent stale data
     clearCache();
     resetTransportState();
+    clearOverride(); // Reset override state
     
     const availability = checkAvailability();
     if (availability.available) {
@@ -309,7 +380,13 @@ export default function (pi: ExtensionAPI) {
           .then(() => debugLog('index','A2A server started successfully'))
           .catch(err => debugLog('index', `A2A startup failed: ${err.message}`));
       } else {
-        debugLog('index','A2A server not ready (not installed or patched). Run /gcs-install-a2a to set up.');
+        debugLog('index','A2A server not ready (not installed or patched). Run /gcs install-a2a to set up.');
+      }
+      
+      // Auto-apply override if persisted in config
+      if (shouldAutoEnableOverride()) {
+        enableOverride(pi);
+        debugLog('index', 'Override auto-enabled from config');
       }
       
       // Fix 14: Use ctx.ui.notify() to match GSD extension styling
@@ -317,7 +394,9 @@ export default function (pi: ExtensionAPI) {
       if (a2aReady) transports.push('A2A ✓');
       transports.push('ACP ✓');
       transports.push('Cold ✓');
-      ctx.ui.notify('gemini-cli-search loaded · ' + transports.join(' · '), 'info');
+      
+      const overrideStatus = shouldAutoEnableOverride() ? ' · override active' : '';
+      ctx.ui.notify('gemini-cli-search loaded · ' + transports.join(' · ') + overrideStatus, 'info');
     } else {
       // Show warning if tool is unavailable
       ctx.ui.notify(`gemini-cli-search unavailable: ${availability.reason}`, 'warning');
