@@ -114,18 +114,9 @@ Error TTL: Failed transports are retried after 5 minutes. Successful queries cle
 
 ## Commands
 
-### `/gcs-install-a2a`
+All commands use the unified `/gcs` prefix with subcommands:
 
-Interactive wizard to install the A2A server:
-
-1. Checks prerequisites (Gemini CLI installed, OAuth authenticated)
-2. Prompts for approval (520-package global npm install)
-3. Installs `@google/gemini-cli-a2a-server@0.34.0`
-4. Creates restricted workspace (only `google_web_search` tool enabled)
-5. Applies two patches (headless mode fix + model override)
-6. Verifies patches took effect
-
-### `/gcs-status`
+### `/gcs status`
 
 Shows transport health and diagnostics:
 
@@ -136,12 +127,42 @@ A2A Server Status:
 - Uptime: 219s
 - Search Count: 3
 
+ACP Transport:
+- Status: idle
+- Session Count: 0/20
+
 Transport Layer:
 - Active Transport: a2a
 - A2A Consecutive Failures: 0
 - ACP Consecutive Failures: 0
 - Cold Consecutive Failures: 0
 ```
+
+### `/gcs install-a2a`
+
+Interactive wizard to install the A2A server:
+
+1. Checks prerequisites (Gemini CLI installed, OAuth authenticated)
+2. Prompts for approval (520-package global npm install)
+3. Installs `@google/gemini-cli-a2a-server@0.34.0`
+4. Creates restricted workspace (only `google_web_search` tool enabled)
+5. Applies two patches (headless mode fix + model override)
+6. Verifies patches took effect
+
+### `/gcs override true|false`
+
+Make `gemini_cli_search` the exclusive search provider for the session:
+
+- **`/gcs override true`** — Disables competing search tools (`search-the-web`, `search_and_read`, `google_search`) and strips Anthropic's native web search from API requests. The LLM only sees `gemini_cli_search`. Setting persists across sessions via config file.
+- **`/gcs override false`** — Restores all search tools. Clears persisted setting.
+
+### `/gcs server start|stop|restart`
+
+Manual A2A server lifecycle control:
+
+- **`/gcs server start`** — Start the A2A server (normally auto-started on session load)
+- **`/gcs server stop`** — Stop the A2A server
+- **`/gcs server restart`** — Stop and restart the A2A server
 
 ## Architecture
 
