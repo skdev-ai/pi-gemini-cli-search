@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { SearchResult, SearchOptions, SearchWarning, SearchError } from './types.js';
 import { resolveGroundingUrls } from './url-resolver.js';
+import { debugLog } from './logger.js';
 
 /**
  * Extracts links from Gemini CLI text output.
@@ -108,6 +109,9 @@ export async function executeSearch(
   // Build prompt using CCS template with explicit search instruction
   const prompt = `Use the google_web_search tool to search the web for: ${query}. Include source URLs.`;
 
+  debugLog('cold-spawn', `Starting cold spawn search for: "${query.substring(0, 50)}${query.length > 50 ? '...' : ''}"`);
+  debugLog('cold-spawn', `Using model: ${model}, timeout: ${timeout}ms`);
+
   return new Promise((resolve) => {
     // Notify start
     if (onUpdate) {
@@ -124,6 +128,8 @@ export async function executeSearch(
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    debugLog('cold-spawn', `Spawned gemini process with PID: ${child.pid}`);
+
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     let timeoutId: NodeJS.Timeout | null = null;
@@ -131,6 +137,7 @@ export async function executeSearch(
     // Set up timeout
     if (timeout > 0) {
       timeoutId = setTimeout(() => {
+        debugLog('cold-spawn', `Search timed out after ${timeout}ms`);
         const error: SearchError = {
           type: 'TIMEOUT',
           message: `Search timed out after ${timeout}ms`,
@@ -147,6 +154,7 @@ export async function executeSearch(
     // Handle abort signal
     if (signal) {
       signal.addEventListener('abort', () => {
+        debugLog('cold-spawn', 'Search cancelled by user');
         const error: SearchError = {
           type: 'SEARCH_FAILED',
           message: 'Search was cancelled',
@@ -176,6 +184,7 @@ export async function executeSearch(
       if (timeoutId) clearTimeout(timeoutId);
 
       if (code !== 0 && code !== null) {
+        debugLog('cold-spawn', `Gemini CLI exited with code ${code}`);
         const stderrOutput = stderrChunks.join('');
 
         // Check for CLI not found (code 127)
@@ -210,6 +219,7 @@ export async function executeSearch(
       const fullText = stdoutChunks.join('');
 
       if (!fullText.trim()) {
+        debugLog('cold-spawn', 'Gemini CLI returned empty response');
         const error: SearchError = {
           type: 'SEARCH_FAILED',
           message: 'Gemini CLI returned empty response',
@@ -220,6 +230,7 @@ export async function executeSearch(
 
       // Extract links from response text
       const links = extractLinks(fullText);
+      debugLog('cold-spawn', `Extracted ${links.length} links from response`);
 
       // Notify URL resolution
       if (onUpdate && links.length > 0) {
@@ -228,13 +239,16 @@ export async function executeSearch(
 
       // Resolve grounding URLs via HEAD requests (passes title + url pairs)
       const groundingUrls = await resolveGroundingUrls(links);
+      debugLog('cold-spawn', `Resolved ${groundingUrls.length} source URLs`);
 
       // Clean the answer text — strip links and source sections
       const cleanAnswer = stripLinks(fullText);
+      debugLog('cold-spawn', `Clean answer length: ${cleanAnswer.length} chars`);
 
       // Warn the LLM when no source URLs were extracted
       let warning: SearchWarning | undefined;
       if (links.length === 0) {
+        debugLog('cold-spawn', 'No links found - adding NO_SEARCH warning');
         warning = {
           type: 'NO_SEARCH',
           message: 'Gemini may have answered from memory — information may not be current.',
@@ -246,6 +260,8 @@ export async function executeSearch(
         onUpdate('Complete');
       }
 
+      debugLog('cold-spawn', 'Cold spawn search completed successfully');
+
       resolve({
         answer: cleanAnswer,
         sources: groundingUrls,
@@ -256,6 +272,7 @@ export async function executeSearch(
     // Handle spawn errors (e.g., command not found at OS level)
     child.on('error', (err) => {
       if (timeoutId) clearTimeout(timeoutId);
+      debugLog('cold-spawn', `Spawn error: ${(err as NodeJS.ErrnoException).message}`);
 
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         const error: SearchError = {
@@ -280,22 +297,22 @@ if (process.argv[1]?.includes('gemini-cli.ts') && process.argv[2]) {
   executeSearch(query)
     .then(result => {
       if (result.error) {
-        console.error(`Error [${result.error.type}]: ${result.error.message}`);
+        debugLog('gemini-cli', `Error [${result.error.type}]: ${result.error.message}`);
         process.exit(1);
       }
       if (result.warning) {
-        console.warn(`Warning: ${result.warning.message}`);
+        debugLog('gemini-cli', `Warning: ${result.warning.message}`);
       }
-      console.log(result.answer);
+      debugLog('gemini-cli', result.answer);
       if (result.sources.length > 0) {
-        console.log('\nSources:');
+        debugLog('gemini-cli', '\nSources:');
         result.sources.forEach((source, i) => {
-          console.log(`${i + 1}. ${source.resolved}`);
+          debugLog('gemini-cli', `${i + 1}. ${source.resolved}`);
         });
       }
     })
     .catch(err => {
-      console.error('Unexpected error:', err.message);
+      debugLog('gemini-cli', `Unexpected error: ${err.message}`);
       process.exit(1);
     });
 }

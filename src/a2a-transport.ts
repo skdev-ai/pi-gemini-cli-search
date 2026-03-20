@@ -21,6 +21,7 @@ import { SEARCH_MODEL } from './types.js';
 import { getServerState, incrementSearchCount } from './a2a-lifecycle.js';
 import { extractLinks, stripLinks } from './gemini-cli.js';
 import { resolveGroundingUrls } from './url-resolver.js';
+import { debugLog } from './logger.js';
 
 // ============================================================================
 // Constants
@@ -43,10 +44,10 @@ export function getResponseTimeout(): number {
 // ============================================================================
 
 /**
- * Logs a message with [a2a-transport] prefix
+ * Logs a debug message (hidden unless GCS_DEBUG=1)
  */
 function log(message: string): void {
-  console.log(`[a2a-transport] ${message}`);
+  debugLog('a2a-transport', message);
 }
 
 /**

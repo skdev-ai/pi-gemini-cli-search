@@ -18,6 +18,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { debugLog } from './logger.js';
 import type { SearchResult, SearchOptions, SearchWarning, SearchError } from './types.js';
 import { SEARCH_MODEL } from './types.js';
 import { extractLinks, stripLinks } from './gemini-cli.js';
@@ -196,7 +197,7 @@ export function resetAcpState(): void {
   lastAcpError = null;
   processStartTime = null;
   pendingRequests.clear();
-  console.log('[acp] State reset');
+  debugLog('acp', 'State reset');
 }
 
 /**
@@ -259,7 +260,7 @@ function sendRequest(
  */
 function handleIncomingMessage(message: any): void {
   if (!message.jsonrpc || message.jsonrpc !== '2.0') {
-    console.log('[acp] Ignoring non-JSON-RPC message:', message);
+    debugLog('acp', 'Ignoring non-JSON-RPC message:', message);
     return;
   }
 
@@ -283,7 +284,7 @@ function handleIncomingMessage(message: any): void {
   const id = message.id;
   const pending = pendingRequests.get(id);
   if (!pending) {
-    console.log('[acp] Received response for unknown request ID:', id);
+    debugLog('acp', 'Received response for unknown request ID:', id);
     return;
   }
 
@@ -305,7 +306,7 @@ function handleIncomingMessage(message: any): void {
 async function ensureAcpProcess(): Promise<void> {
   // Check if we need to restart due to query count limit
   if (acpProcess && acpQueryCount >= MAX_ACP_QUERIES_BEFORE_RESTART) {
-    console.log('[acp] Restarting process after', acpQueryCount, 'queries (context reset)');
+    debugLog('acp', 'Restarting process after', acpQueryCount, 'queries (context reset)');
     if (acpProcess) {
       acpProcess.kill();
       acpProcess = null;
@@ -320,7 +321,7 @@ async function ensureAcpProcess(): Promise<void> {
     return;
   }
 
-  console.log('[acp] Spawning gemini --acp subprocess...');
+  debugLog('acp', 'Spawning gemini --acp subprocess...');
   processStartTime = Date.now();
 
   return new Promise((resolve, reject) => {
@@ -340,7 +341,7 @@ async function ensureAcpProcess(): Promise<void> {
         const message = JSON.parse(line);
         handleIncomingMessage(message);
       } catch (err) {
-        console.log('[acp] Failed to parse stdout JSON:', line, err);
+        debugLog('acp', 'Failed to parse stdout JSON:', line, err);
       }
     });
 
@@ -354,14 +355,14 @@ async function ensureAcpProcess(): Promise<void> {
           type: 'NOT_AUTHENTICATED',
           message: 'Gemini CLI authentication failed. Please run `gemini` to authenticate.',
         };
-        console.log('[acp] Authentication error detected:', error.message);
+        debugLog('acp', 'Authentication error detected:', error.message);
         reject(error);
       }
     });
 
     // Monitor for unexpected crashes
     acpProcess.on('exit', (code) => {
-      console.log('[acp] Process exited with code', code);
+      debugLog('acp', 'Process exited with code', code);
       acpProcess = null;
       sessionId = null;
       
@@ -390,7 +391,7 @@ async function ensureAcpProcess(): Promise<void> {
         type: 'TIMEOUT',
         message: `ACP boot timed out after ${BOOT_TIMEOUT_MS}ms`,
       };
-      console.log('[acp] Boot timeout:', error.message);
+      debugLog('acp', 'Boot timeout:', error.message);
       reject(error);
     }, BOOT_TIMEOUT_MS);
 
@@ -398,7 +399,7 @@ async function ensureAcpProcess(): Promise<void> {
     const performHandshake = async () => {
       try {
         // Step 1: Initialize
-        console.log('[acp] Sending initialize request...');
+        debugLog('acp', 'Sending initialize request...');
         await sendRequest('initialize', {
           protocolVersion: 1,
           clientCapabilities: {},
@@ -407,28 +408,28 @@ async function ensureAcpProcess(): Promise<void> {
             version: '0.1',
           },
         }, undefined, BOOT_TIMEOUT_MS);
-        console.log('[acp] Initialize complete');
+        debugLog('acp', 'Initialize complete');
 
         // Step 2: Authenticate (use BOOT_TIMEOUT_MS for handshake)
-        console.log('[acp] Sending authenticate request...');
+        debugLog('acp', 'Sending authenticate request...');
         await sendRequest('authenticate', {
           methodId: 'oauth-personal',
         }, undefined, BOOT_TIMEOUT_MS);
-        console.log('[acp] Authentication complete');
+        debugLog('acp', 'Authentication complete');
 
         // Step 3: Create session (ONCE per process lifetime) (use BOOT_TIMEOUT_MS)
-        console.log('[acp] Creating new session...');
+        debugLog('acp', 'Creating new session...');
         const sessionResult = await sendRequest('session/new', {
           cwd: process.cwd(),
           mcpServers: [],
         }, undefined, BOOT_TIMEOUT_MS);
         
         sessionId = sessionResult.sessionId;
-        console.log('[acp] Session created:', sessionId);
+        debugLog('acp', 'Session created:', sessionId);
 
         // Clear boot timeout and resolve
         clearTimeout(bootTimeoutId);
-        console.log('[acp] Handshake complete in', Date.now() - (processStartTime ?? 0), 'ms');
+        debugLog('acp', 'Handshake complete in', Date.now() - (processStartTime ?? 0), 'ms');
         resolve();
       } catch (err) {
         clearTimeout(bootTimeoutId);
@@ -469,7 +470,7 @@ export async function executeSearchAcp(
   try {
     // Increment counter BEFORE ensureAcpProcess so restart check sees updated count
     acpQueryCount++;
-    console.log('[acp] Query', acpQueryCount, '/', MAX_ACP_QUERIES_BEFORE_RESTART);
+    debugLog('acp', 'Query', acpQueryCount, '/', MAX_ACP_QUERIES_BEFORE_RESTART);
 
     // Ensure process is running and initialized
     await ensureAcpProcess();
@@ -509,7 +510,7 @@ export async function executeSearchAcp(
         // Detect tool calls for R010 verification
         if (update.sessionUpdate === 'tool_call' && update.kind === 'search') {
           usedSearch = true;
-          console.log('[acp] Tool call detected:', update.title);
+          debugLog('acp', 'Tool call detected:', update.title);
         }
       }
     );
@@ -518,7 +519,7 @@ export async function executeSearchAcp(
     let cancelled = false;
     if (signal) {
       signal.addEventListener('abort', async () => {
-        console.log('[acp] Abort signal received, sending cancel request...');
+        debugLog('acp', 'Abort signal received, sending cancel request...');
         cancelled = true;
 
         try {
@@ -532,13 +533,13 @@ export async function executeSearchAcp(
 
           // Kill subprocess if still running
           if (acpProcess) {
-            console.log('[acp] Graceful cancel timed out, killing process');
+            debugLog('acp', 'Graceful cancel timed out, killing process');
             acpProcess.kill();
             acpProcess = null;
             sessionId = null;
           }
         } catch (err) {
-          console.log('[acp] Cancel error:', err);
+          debugLog('acp', 'Cancel error:', err);
           // Force kill anyway
           if (acpProcess) {
             acpProcess.kill();
@@ -600,7 +601,7 @@ export async function executeSearchAcp(
       onUpdate('Complete');
     }
 
-    console.log('[acp] Query complete, used search:', usedSearch);
+    debugLog('acp', 'Query complete, used search:', usedSearch);
 
     return {
       answer: cleanAnswer,
@@ -609,7 +610,7 @@ export async function executeSearchAcp(
       transport: 'acp',
     };
   } catch (err: any) {
-    console.log('[acp] Error:', err.type, err.message);
+    debugLog('acp', 'Error:', err.type, err.message);
 
     // Track error for getAcpState()
     lastAcpError = err as SearchError;
@@ -633,23 +634,23 @@ if (process.argv[1]?.includes('acp.ts') && process.argv[2]) {
   executeSearchAcp(query)
     .then((result) => {
       if (result.error) {
-        console.error(`Error [${result.error.type}]: ${result.error.message}`);
+        debugLog('acp', `Error [${result.error.type}]: ${result.error.message}`);
         process.exit(1);
       }
       if (result.warning) {
-        console.warn(`Warning: ${result.warning.message}`);
+        debugLog('acp', `Warning: ${result.warning.message}`);
       }
-      console.log(result.answer);
+      debugLog('acp', result.answer);
       if (result.sources.length > 0) {
-        console.log('\nSources:');
+        debugLog('acp', '\nSources:');
         result.sources.forEach((source, i) => {
-          console.log(`${i + 1}. ${source.resolved}`);
+          debugLog('acp', `${i + 1}. ${source.resolved}`);
         });
       }
-      console.log('\n[acp] State:', getAcpState());
+      debugLog('acp', '\n[acp] State:', getAcpState());
     })
     .catch((err) => {
-      console.error('Unexpected error:', err.message);
+      debugLog('acp', 'Unexpected error:', err.message);
       process.exit(1);
     });
 }
