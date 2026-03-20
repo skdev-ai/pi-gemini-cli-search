@@ -46,3 +46,10 @@ tmp/
 
 # ── GSD baseline (auto-generated) ──
 .gsd
+
+# UAT working documentation (temporary)
+UAT-FIXES.md
+UAT-FIXES-IMPLEMENTED.md
+TEST-STATUS.md
+FINAL-TEST-STATUS.md
+RESEARCH-*.md
