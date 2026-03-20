@@ -1,6 +1,6 @@
 {
   "name": "@skdev-ai/pi-gemini-cli-search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi/GSD extension providing grounded web search via Gemini CLI's A2A and ACP protocols. Uses your existing Google AI Pro subscription.",
   "type": "module",
   "main": "src/index.ts",
@@ -39,7 +39,6 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "^0.52.0",
     "@sinclair/typebox": "^0.34.41"
   },
   "dependencies": {
