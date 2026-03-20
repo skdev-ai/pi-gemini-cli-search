@@ -7,6 +7,8 @@ import { checkAvailability } from "./availability.js";
 import { installA2AServer } from "./a2a-installer.js";
 import { startServer, getServerState, stopServer } from "./a2a-lifecycle.js";
 import { getTransportState } from "./transport.js";
+import { getAcpState } from "./acp.js";
+import { debugLog } from "./logger.js";
 
 /**
  * Gemini CLI Search Extension
@@ -84,6 +86,13 @@ function renderError(result: SearchResult): string {
 
 // ── Extension Entry Point ───────────────────────────────────────────────────
 
+/**
+ * Debug flag - set GCS_DEBUG=1 to enable verbose logging
+ */
+
+/**
+ * Logs a message only if GCS_DEBUG is enabled
+ */
 export default function (pi: ExtensionAPI) {
   // Register the gemini_cli_search tool
   // @ts-expect-error - ExtensionAPI type not available at compile time, but runtime signature accepts single object
@@ -109,7 +118,7 @@ export default function (pi: ExtensionAPI) {
       // Check cache first
       const cached = get(params.query);
       if (cached) {
-        console.log('[gemini-cli-search] Cache hit for query:', params.query);
+        debugLog('index',`Cache hit for query: ${params.query}`);
         if (cached.error) {
           return {
             content: [{ type: 'text', text: renderError(cached) }],
@@ -172,22 +181,31 @@ export default function (pi: ExtensionAPI) {
           ui: {
             notify: (message) => ctx.ui.notify(message),
             confirm: async (message, options) => {
-              const result = await ctx.ui.confirm(message, {
-                title: options?.title,
-                detail: options?.detail,
-              });
+              // GSD's ctx.ui.confirm(title, detail) takes two strings, not an options object
+              const title = options?.title || 'Confirm Installation';
+              const detail = options?.detail || message;
+              const result = await ctx.ui.confirm(title, detail);
               return result;
             },
           },
         });
-        ctx.ui.notify('A2A installation complete! Run `gcs-status` to verify.', 'success');
+        
+        // Fix 6: Auto-start A2A server immediately after successful installation
+        ctx.ui.notify('A2A installation complete! Starting server...', 'success');
+        try {
+          await startServer();
+          ctx.ui.notify('A2A server started successfully. Ready to use!', 'success');
+        } catch (startErr) {
+          const startMessage = startErr instanceof Error ? startErr.message : String(startErr);
+          ctx.ui.notify(`Installation succeeded but server failed to start: ${startMessage}`, 'warning');
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // Extract phase from error if available (prereq/install/workspace/patch/verify)
         const phase = (error as any)?.phase || 'unknown';
         const remediation = (error as any)?.remediation || 'Check logs and retry';
         ctx.ui.notify(`Installation failed (${phase}): ${message}. ${remediation}`, 'error');
-        console.error('[A2A Install]', phase, error);
+        debugLog('index', `Installation failed (${phase}): ${message}. ${remediation}`);
       }
     },
   });
@@ -198,6 +216,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args: any, ctx: any) => {
       const a2aState = getServerState();
       const transportState = getTransportState();
+      const acpState = getAcpState();
       
       const lines: string[] = [];
       lines.push(`**A2A Server Status:**`);
@@ -231,6 +250,18 @@ export default function (pi: ExtensionAPI) {
         recentStdout.forEach(line => lines.push(`  \`${line}\``));
       }
       
+      // Fix 7: Add ACP state
+      lines.push('');
+      lines.push(`**ACP Transport:**`);
+      lines.push(`- Status: \`${acpState.status}\``);
+      lines.push(`- Session Count: \`${acpState.sessionCount}/20\``);
+      if (acpState.uptime && acpState.uptime > 0) {
+        lines.push(`- Uptime: \`${Math.round(acpState.uptime / 1000)}s\``);
+      }
+      if (acpState.lastError) {
+        lines.push(`- Last Error: \`${acpState.lastError.type}\``);
+      }
+      
       // Add transport layer diagnostics
       lines.push('');
       lines.push(`**Transport Layer:**`);
@@ -258,29 +289,38 @@ export default function (pi: ExtensionAPI) {
     },
   });
   
-  // Notify on session start
-  pi.on('session_start', async () => {
+  // Notify on session start - Fix 14: Use ctx.ui.notify() to integrate with GSD TUI
+  pi.on('session_start', async (_event: any, ctx: any) => {
     // Clear cache and reset transport state on session start to prevent stale data
     clearCache();
     resetTransportState();
     
     const availability = checkAvailability();
     if (availability.available) {
-      console.log('[gemini-cli-search] Tool available and ready');
+      debugLog('index','Tool available and ready');
       
       // Only start A2A server if it's installed and patched
       // Check a2a-specific availability (not just CLI + credentials)
       const a2aReady = availability.a2a?.installed && availability.a2a?.patched;
       if (a2aReady) {
         // Fire-and-forget A2A server startup (non-blocking)
+        // Lifecycle messages ("Starting...", "Server running") are debug-only
         startServer()
-          .then(() => console.log('[gemini-cli-search] A2A server started successfully'))
-          .catch(err => console.error('[gemini-cli-search] A2A startup failed:', err));
+          .then(() => debugLog('index','A2A server started successfully'))
+          .catch(err => debugLog('index', `A2A startup failed: ${err.message}`));
       } else {
-        console.log('[gemini-cli-search] A2A server not ready (not installed or patched). Run /gemini install-a2a to set up.');
+        debugLog('index','A2A server not ready (not installed or patched). Run /gcs-install-a2a to set up.');
       }
+      
+      // Fix 14: Use ctx.ui.notify() to match GSD extension styling
+      const transports = [];
+      if (a2aReady) transports.push('A2A ✓');
+      transports.push('ACP ✓');
+      transports.push('Cold ✓');
+      ctx.ui.notify('gemini-cli-search loaded · ' + transports.join(' · '), 'info');
     } else {
-      console.log(`[gemini-cli-search] Tool unavailable: ${availability.reason}`);
+      // Show warning if tool is unavailable
+      ctx.ui.notify(`gemini-cli-search unavailable: ${availability.reason}`, 'warning');
     }
   });
   
@@ -288,12 +328,12 @@ export default function (pi: ExtensionAPI) {
   // Note: process.on('exit') is synchronous - async operations don't complete
   // Use SIGINT/SIGTERM for async cleanup, then sync kill on exit
   const gracefulShutdown = async (signal: string) => {
-    console.log(`[gemini-cli-search] Received ${signal}, shutting down A2A server...`);
+    debugLog('index',`Received ${signal}, shutting down A2A server...`);
     try {
       await stopServer();
-      console.log('[gemini-cli-search] A2A server stopped gracefully');
+      debugLog('index','A2A server stopped gracefully');
     } catch (err) {
-      console.error('[gemini-cli-search] Error during shutdown:', err);
+      debugLog('index',`Error during shutdown: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
   
@@ -303,6 +343,6 @@ export default function (pi: ExtensionAPI) {
   // Fallback: synchronous cleanup if async handlers didn't complete
   process.on('exit', () => {
     // Synchronous cleanup - just log, actual stop happens in signal handlers
-    console.log('[gemini-cli-search] Process exiting');
+    debugLog('index','Process exiting');
   });
 }
