@@ -152,7 +152,7 @@ describe('gemini_cli_search tool registration', () => {
   });
 });
 
-describe('gcs-status command', () => {
+describe('/gcs command', () => {
   let mockApi: MockExtensionAPI;
 
   beforeEach(() => {
@@ -161,14 +161,14 @@ describe('gcs-status command', () => {
     extensionFactory(mockApi as any);
   });
 
-  it('registers gcs-status command', () => {
-    const handler = mockApi.registeredCommands.get('gcs-status');
+  it('registers /gcs command', () => {
+    const handler = mockApi.registeredCommands.get('gcs');
     expect(handler).toBeDefined();
     expect(typeof handler).toBe('function');
   });
 
-  it('gcs-status command calls getServerState and displays status', async () => {
-    const handler = mockApi.registeredCommands.get('gcs-status');
+  it('/gcs status subcommand calls getServerState and displays status', async () => {
+    const handler = mockApi.registeredCommands.get('gcs');
     expect(handler).toBeDefined();
     
     const mockCtx = {
@@ -177,7 +177,7 @@ describe('gcs-status command', () => {
       },
     };
     
-    await handler!( {}, mockCtx);
+    await handler!('status', mockCtx);
     
     expect(getServerState).toHaveBeenCalledTimes(1);
     expect(mockCtx.ui.notify).toHaveBeenCalledTimes(1);
@@ -200,7 +200,7 @@ describe('gcs-status command', () => {
       stderrBuffer: [],
     });
     
-    const handler = mockApi.registeredCommands.get('gcs-status');
+    const handler = mockApi.registeredCommands.get('gcs');
     expect(handler).toBeDefined();
     
     const mockCtx = {
@@ -209,7 +209,7 @@ describe('gcs-status command', () => {
       },
     };
     
-    await handler!( {}, mockCtx);
+    await handler!('status', mockCtx);
     
     const notifyMessage = mockCtx.ui.notify.mock.calls[0][0];
     expect(notifyMessage).toContain('Uptime:');
@@ -232,7 +232,7 @@ describe('gcs-status command', () => {
       stderrBuffer: [],
     });
     
-    const handler = mockApi.registeredCommands.get('gcs-status');
+    const handler = mockApi.registeredCommands.get('gcs');
     expect(handler).toBeDefined();
     
     const mockCtx = {
@@ -241,7 +241,7 @@ describe('gcs-status command', () => {
       },
     };
     
-    await handler!( {}, mockCtx);
+    await handler!('status', mockCtx);
     
     const notifyMessage = mockCtx.ui.notify.mock.calls[0][0];
     expect(notifyMessage).toContain('Last Error:');
