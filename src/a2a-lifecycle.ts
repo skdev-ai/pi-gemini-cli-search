@@ -56,6 +56,9 @@ let uptimeTimer: NodeJS.Timeout | null = null;
 /** Health check interval reference (for reused servers) */
 let healthCheckInterval: NodeJS.Timeout | null = null;
 
+/** Manual stop flag - prevents health monitor from respawning intentionally stopped servers */
+let manualStop = false;
+
 // ============================================================================
 // Ring Buffer Implementation
 // ============================================================================
@@ -119,7 +122,7 @@ function clearHealthCheckInterval(): void {
 
 /**
  * Starts periodic health monitoring for reused servers.
- * Checks every 30s, respawns if health check fails.
+ * Checks every 30s, respawns if health check fails (unless manually stopped).
  */
 function startHealthMonitoring(): void {
   // Clear any existing health check
@@ -131,6 +134,18 @@ function startHealthMonitoring(): void {
       const healthy = await isServerHealthy(A2A_PORT);
       
       if (!healthy) {
+        // Check if server was manually stopped
+        if (manualStop) {
+          log('Health check failed but server was manually stopped, skipping respawn');
+          clearHealthCheckInterval();
+          clearUptimeTimer();
+          updateState({ 
+            status: 'stopped',
+            uptime: null,
+          });
+          return;
+        }
+        
         log('Health check failed: server no longer responding, respawning...');
         
         // Clear health check to prevent multiple concurrent checks
@@ -190,6 +205,9 @@ function startHealthMonitoring(): void {
  * @returns Promise that resolves when server is running, rejects on error
  */
 export async function startServer(): Promise<void> {
+  // Clear manual stop flag (intentional start)
+  manualStop = false;
+  
   // Check if there's an ongoing startup promise (concurrent lock)
   if (startupPromise) {
     log('Waiting for ongoing startup to complete');
@@ -451,6 +469,9 @@ export async function startServer(): Promise<void> {
 export async function stopServer(): Promise<void> {
   log('Stopping A2A server...');
   
+  // Set manual stop flag to prevent health monitor from respawning
+  manualStop = true;
+  
   clearUptimeTimer();
   clearHealthCheckInterval(); // Clear health check for reused servers
   
@@ -566,6 +587,15 @@ export async function incrementSearchCount(): Promise<void> {
 export function resetSearchCount(): void {
   updateState({ searchCount: 0 });
   log('Search count reset to 0');
+}
+
+/**
+ * Resets the manual stop flag (called on session_start).
+ * Ensures health monitor will respawn if server dies in new session.
+ */
+export function resetManualStopFlag(): void {
+  manualStop = false;
+  log('Manual stop flag reset');
 }
 
 /**

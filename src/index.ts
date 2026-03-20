@@ -5,7 +5,7 @@ import type { SearchResult } from "./types.js";
 import { get, set, clear as clearCache } from "./cache.js";
 import { checkAvailability } from "./availability.js";
 import { installA2AServer } from "./a2a-installer.js";
-import { startServer, getServerState, stopServer } from "./a2a-lifecycle.js";
+import { startServer, getServerState, stopServer, resetManualStopFlag } from "./a2a-lifecycle.js";
 import { getTransportState } from "./transport.js";
 import { getAcpState } from "./acp.js";
 import { debugLog } from "./logger.js";
@@ -365,6 +365,7 @@ export default function (pi: ExtensionAPI) {
     clearCache();
     resetTransportState();
     clearOverride(); // Reset override state
+    resetManualStopFlag(); // Reset manual stop flag for health monitor
     
     const availability = checkAvailability();
     if (availability.available) {
