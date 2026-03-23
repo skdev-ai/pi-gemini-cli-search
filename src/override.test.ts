@@ -136,6 +136,58 @@ describe('Override Module', () => {
       expect(result.tools[0].name).toBe('gemini_cli_search');
     });
 
+    it('strips custom search tools in OpenAI format (function.name)', () => {
+      mockApi.getActiveTools.mockReturnValue(['gemini_cli_search']);
+      enableOverride(mockApi as any);
+
+      const handlers = mockApi.eventHandlers.get('before_provider_request');
+      const handler = handlers![0];
+
+      const payload = {
+        tools: [
+          { type: 'function', function: { name: 'search-the-web', description: 'Search the web' } },
+          { type: 'function', function: { name: 'search_and_read', description: 'Search and read' } },
+          { type: 'function', function: { name: 'google_search', description: 'Google search' } },
+          { type: 'function', function: { name: 'gemini_cli_search', description: 'Gemini search' } },
+        ],
+      };
+
+      const result = handler({ payload });
+
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools[0].function.name).toBe('gemini_cli_search');
+    });
+
+    it('strips mixed Anthropic and OpenAI tool formats', () => {
+      mockApi.getActiveTools.mockReturnValue(['gemini_cli_search']);
+      enableOverride(mockApi as any);
+
+      const handlers = mockApi.eventHandlers.get('before_provider_request');
+      const handler = handlers![0];
+
+      const payload = {
+        tools: [
+          // Anthropic format
+          { type: 'function', name: 'search-the-web' },
+          { type: 'function', name: 'gemini_cli_search' },
+          // OpenAI format
+          { type: 'function', function: { name: 'search_and_read' } },
+          { type: 'function', function: { name: 'google_search' } },
+          { type: 'function', function: { name: 'other-tool' } },
+          // Native search
+          { type: 'web_search_20250305', name: 'web_search' },
+        ],
+      };
+
+      const result = handler({ payload });
+
+      expect(result.tools).toHaveLength(2);
+      const remainingNames = result.tools.map((t: any) => t.name || t.function?.name);
+      expect(remainingNames).toEqual(
+        expect.arrayContaining(['gemini_cli_search', 'other-tool'])
+      );
+    });
+
     it('strips both native and custom search tools', () => {
       mockApi.getActiveTools.mockReturnValue(['gemini_cli_search']);
       enableOverride(mockApi as any);

@@ -90,8 +90,9 @@ export function enableOverride(pi: ExtensionAPI): void {
           if (t.type === NATIVE_SEARCH_TYPE) {
             return false;
           }
-          // Strip custom search tools by name
-          if (t.name && COMPETING_TOOL_NAMES.includes(t.name)) {
+          // Strip custom search tools by name (supports both Anthropic and OpenAI formats)
+          const toolName = t.name || t.function?.name;
+          if (toolName && COMPETING_TOOL_NAMES.includes(toolName)) {
             return false;
           }
           return true;
