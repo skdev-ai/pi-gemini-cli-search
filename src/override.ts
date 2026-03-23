@@ -11,9 +11,10 @@ interface ToolManagementAPI extends ExtensionAPI {
 }
 
 /**
- * Competing search tools to disable when override is active
+ * Competing search tool NAMES to disable when override is active
+ * These are stripped from the tools array in before_provider_request
  */
-const COMPETING_TOOLS = [
+const COMPETING_TOOL_NAMES = [
   'search-the-web',
   'search_and_read', 
   'google_search'
@@ -21,6 +22,7 @@ const COMPETING_TOOLS = [
 
 /**
  * Anthropic's native web search tool type (injected server-side)
+ * This is stripped from the tools array in before_provider_request
  */
 const NATIVE_SEARCH_TYPE = 'web_search_20250305';
 
@@ -55,9 +57,9 @@ export function enableOverride(pi: ExtensionAPI): void {
     return;
   }
   
-  // Filter out competing search tools
+  // Filter out competing search tools (best-effort, may not work if tools not yet registered)
   const filteredTools = originalTools.filter(
-    tool => !COMPETING_TOOLS.includes(tool)
+    tool => !COMPETING_TOOL_NAMES.includes(tool)
   );
   
   try {
@@ -70,7 +72,8 @@ export function enableOverride(pi: ExtensionAPI): void {
     return;
   }
   
-  // Register before_provider_request hook to strip Anthropic native search
+  // Register before_provider_request hook to strip BOTH Anthropic native search AND custom search tools
+  // This fires on EVERY provider request, ensuring override works even if tools register async
   beforeProviderRequestHandler = (event: any) => {
     if (!overrideEnabled) {
       return event.payload;
@@ -79,13 +82,26 @@ export function enableOverride(pi: ExtensionAPI): void {
     const payload = event.payload as Record<string, unknown>;
     if (Array.isArray(payload.tools)) {
       const toolsBefore = (payload.tools as any[]).length;
+      
+      // Strip Anthropic native search tool by type
       payload.tools = (payload.tools as any[]).filter(
-        (t: any) => t.type !== NATIVE_SEARCH_TYPE
+        (t: any) => {
+          // Strip native search by type
+          if (t.type === NATIVE_SEARCH_TYPE) {
+            return false;
+          }
+          // Strip custom search tools by name
+          if (t.name && COMPETING_TOOL_NAMES.includes(t.name)) {
+            return false;
+          }
+          return true;
+        }
       );
+      
       const toolsAfter = (payload.tools as any[]).length;
       
       if (toolsBefore !== toolsAfter) {
-        debugLog('override', `Stripped ${toolsBefore - toolsAfter} native search tool(s) from provider request`);
+        debugLog('override', `Stripped ${toolsBefore - toolsAfter} search tool(s) from provider request (native + custom)`);
       }
     }
     
