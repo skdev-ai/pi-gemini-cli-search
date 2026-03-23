@@ -7,13 +7,18 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { A2AServerState, SearchError } from './types.js';
 import { getA2APackageRoot } from './a2a-path.js';
 import { checkA2APatched } from './availability.js';
 import { isPortInUse, isServerHealthy } from './port-check.js';
 import { debugLog } from './logger.js';
+
+// Resolve extension directory from import.meta.url (works with ES modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const EXT_DIR = join(__dirname, '..'); // Go up from src/ to extension root
 
 // ============================================================================
 // Constants
@@ -279,7 +284,7 @@ export async function startServer(): Promise<void> {
           ...process.env,
           USE_CCPA: '1',
           CODER_AGENT_PORT: String(A2A_PORT),
-          CODER_AGENT_WORKSPACE_PATH: join(homedir(), '.pi', 'agent', 'extensions', 'gemini-cli-search', 'a2a-workspace'),
+          CODER_AGENT_WORKSPACE_PATH: join(EXT_DIR, 'a2a-workspace'),
           GEMINI_YOLO_MODE: 'true',
         },
       });

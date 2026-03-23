@@ -2,8 +2,14 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getA2APath, getA2APackageRoot } from './a2a-path.js';
 import { checkA2AInstalled, checkA2APatched } from './availability.js';
+
+// Resolve extension directory from import.meta.url (works with ES modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const EXT_DIR = join(__dirname, '..'); // Go up from src/ to extension root
 
 /**
  * Custom error class for A2A installation failures.
@@ -60,11 +66,10 @@ const RESTRICTED_WORKSPACE_SETTINGS = {
 
 /**
  * Path to the restricted workspace settings file.
- * Located at ~/.pi/agent/extensions/gemini-cli-search/a2a-workspace/.gemini/settings.json
+ * Located at <extension-dir>/a2a-workspace/.gemini/settings.json
  */
 function getRestrictedWorkspaceSettingsPath(): string {
-  const homeDir = homedir();
-  return join(homeDir, '.pi', 'agent', 'extensions', 'gemini-cli-search', 'a2a-workspace', '.gemini', 'settings.json');
+  return join(EXT_DIR, 'a2a-workspace', '.gemini', 'settings.json');
 }
 
 /**
@@ -194,7 +199,7 @@ function installA2ABinary(ctx: InstallerContext): void {
 /**
  * Phase 3b: Workspace Creation - Creates restricted workspace settings.
  * 
- * Creates ~/.pi/agent/extensions/gemini-cli-search/a2a-workspace/.gemini/settings.json
+ * Creates <extension-dir>/a2a-workspace/.gemini/settings.json
  * with excludeTools list that blocks all tools except google_web_search.
  * 
  * Includes warning comment about denylist risk:

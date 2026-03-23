@@ -177,7 +177,7 @@ describe('A2A Lifecycle Module', () => {
           env: expect.objectContaining({
             USE_CCPA: '1',
             CODER_AGENT_PORT: '41242',
-            CODER_AGENT_WORKSPACE_PATH: expect.stringContaining('gemini-cli-search/a2a-workspace'),
+            CODER_AGENT_WORKSPACE_PATH: expect.stringContaining('a2a-workspace'),
             GEMINI_YOLO_MODE: 'true',
           }),
         })
