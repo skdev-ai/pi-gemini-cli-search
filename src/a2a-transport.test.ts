@@ -313,7 +313,7 @@ describe('executeSearchA2A', () => {
     expect(approvalBody.params.message.parts[0].data.outcome).toBe('proceed_once');
 
     // Verify result contains approval stream content
-    expect(result.answer).toBe('Final answer');
+    expect(result.answer).toContain('Final answer');
     expect(result.transport).toBe('a2a');
   });
 

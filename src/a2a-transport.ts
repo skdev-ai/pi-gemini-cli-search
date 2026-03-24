@@ -345,10 +345,11 @@ export async function executeSearchA2A(
         log('Stream ended');
         
         // Check if stream ended without completion flag
-        if (!isComplete && rawAnswer) {
+        // If approval is required, don't throw - we'll read the approval stream
+        if (!isComplete && rawAnswer && !approvalRequired) {
           log(`WARNING: Stream ended prematurely without completion flag. Got ${rawAnswer.length} chars but no input-required+final state.`);
           // Still process the answer but log a warning - better to return partial than nothing
-        } else if (!isComplete && !rawAnswer) {
+        } else if (!isComplete && !rawAnswer && !approvalRequired) {
           log('Stream ended with no answer and no completion flag');
           throw createSearchError('PARSE_ERROR', 'A2A stream ended without returning any answer');
         }
