@@ -8,6 +8,8 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join, dirname } from 'node:path';
+import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { A2AServerState, SearchError } from './types.js';
 import { getA2APackageRoot } from './a2a-path.js';
@@ -223,6 +225,23 @@ export async function startServer(): Promise<void> {
   if (serverState.status === 'running') {
     log('Server already running, rejecting duplicate start request');
     throw createSearchError('SEARCH_FAILED', 'Server is already running');
+  }
+
+  // Check for provider extension — defer startup if installed
+  const providerWorkspaceMarker = join(
+    homedir(),
+    '.pi',
+    'agent',
+    'extensions',
+    'pi-gemini-cli-provider',
+    'a2a-workspace',
+    '.gemini',
+    'settings.json'
+  );
+
+  if (existsSync(providerWorkspaceMarker)) {
+    log('Provider extension detected — deferring A2A server startup to provider');
+    return; // Don't spawn, don't throw — let cascade handle timing gap
   }
 
   // Fix 10: Check for existing A2A server before spawning
