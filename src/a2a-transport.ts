@@ -228,6 +228,11 @@ export async function executeSearchA2A(
     let lastKnownState: string | null = null;
     let isComplete = false;
     
+    // Track approval state for non-YOLO mode
+    let taskId: string | null = null;
+    let callId: string | null = null;
+    let approvalRequired = false;
+    
     // Set up SSE parser with error handler for debugging
     const parser = createParser({
       onEvent: (event: EventSourceMessage) => {
@@ -239,12 +244,27 @@ export async function executeSearchA2A(
         }
         
         try {
-          const parsed = JSON.parse(event.data) as { result?: A2AResult };
+          const parsed = JSON.parse(event.data) as { result?: A2AResult, id?: string };
           const result = parsed.result;
           
           if (!result) {
             log('No result in parsed JSON');
             return;
+          }
+          
+          // Capture taskId from result.id
+          if (parsed.id && !taskId) {
+            taskId = parsed.id;
+            log(`Captured taskId: ${taskId}`);
+          }
+          
+          // Check for tool call data (extract callId)
+          const parts = result.status.message?.parts || [];
+          for (const part of parts) {
+            if (part.kind === 'data' && part.data?.request?.callId) {
+              callId = part.data.request.callId;
+              log(`Captured callId from tool call: ${callId}`);
+            }
           }
           
           log(`Result state: ${result.status?.state}, final: ${result.final}`);
@@ -272,8 +292,20 @@ export async function executeSearchA2A(
             onUpdate(progressMessage);
           }
           
-          // Check for task completion
-          if (result.status.state === 'input-required' && result.final === true) {
+          // Check for approval requirement: input-required + final: true + pending tool call
+          // IMPORTANT: Only set flag here, don't send approval (can't await in sync callback)
+          if (result.status.state === 'input-required' && 
+              result.final === true && 
+              callId && 
+              taskId && 
+              !approvalRequired) {
+            log('Approval required detected: input-required + final: true with pending tool call');
+            approvalRequired = true;
+            // Don't mark isComplete=true here - we'll handle approval after stream ends
+          }
+          
+          // Check for task completion (only if approval not required)
+          if (result.status.state === 'input-required' && result.final === true && !approvalRequired) {
             log('Task completed (input-required + final)');
             log(`Raw answer length: ${rawAnswer.length}`);
             
