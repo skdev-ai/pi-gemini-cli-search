@@ -38,7 +38,17 @@ vi.mock('./port-check.js', () => ({
   isServerHealthy: vi.fn().mockResolvedValue(false),
 }));
 
+// Mock fs.existsSync for provider detection test
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+  };
+});
+
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { checkA2APatched } from './availability.js';
 
 const mockedSpawn = vi.mocked(spawn);
@@ -688,6 +698,20 @@ describe('A2A Lifecycle Module', () => {
       const state = lifecycle.getServerState();
       expect(state.status).toBe('error');
       expect(state.lastError?.type).toBe('A2A_NOT_PATCHED');
+    });
+
+    it('defers startup when provider extension is installed', async () => {
+      // Mock existsSync to return true for provider marker
+      vi.mocked(existsSync).mockImplementation((path: any) => {
+        return String(path).includes('pi-gemini-cli-provider');
+      });
+
+      // Should resolve (not throw) but not spawn
+      await lifecycle.startServer();
+
+      // Verify no child process was spawned
+      expect(lifecycle.__testing__.getChildProcess()).toBeNull();
+      expect(mockedSpawn).not.toHaveBeenCalled();
     });
   });
 });
