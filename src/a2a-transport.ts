@@ -365,6 +365,123 @@ export async function executeSearchA2A(
       }
     }
     
+    // Handle approval after original stream ends (non-YOLO mode)
+    if (approvalRequired && taskId && callId) {
+      log('Handling approval requirement after stream ended...');
+      
+      // Send approval POST request
+      const approvalRequestBody = {
+        id: `approval-${crypto.randomUUID()}`,
+        jsonrpc: '2.0' as const,
+        method: 'message/stream' as const,
+        params: {
+          taskId: taskId,
+          message: {
+            role: 'user' as const,
+            parts: [{
+              kind: 'data' as const,
+              data: {
+                callId: callId,
+                outcome: 'proceed_once' as const,
+              },
+            }],
+            messageId: `approval-msg-${crypto.randomUUID()}`,
+          },
+        },
+      };
+      
+      log('Sending approval request...');
+      
+      const approvalResponse = await fetch(A2A_SERVER_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify(approvalRequestBody),
+        signal: responseController.signal,
+      });
+      
+      if (!approvalResponse.ok) {
+        log(`Approval request failed: ${approvalResponse.status}`);
+        throw createSearchError('SEARCH_FAILED', `Approval request failed: ${approvalResponse.status}`);
+      }
+      
+      log('Approval sent, reading approval response stream...');
+      
+      // Read approval response stream
+      const approvalReader = approvalResponse.body?.getReader();
+      if (!approvalReader) {
+        throw createSearchError('PARSE_ERROR', 'No approval response body received');
+      }
+      
+      // Create new parser for approval stream (reuse same onEvent callback logic)
+      const approvalParser = createParser({
+        onEvent: (event: EventSourceMessage) => {
+          // Reuse same parsing logic - will accumulate text into rawAnswer
+          if (!event.data) return;
+          
+          try {
+            const parsed = JSON.parse(event.data) as { result?: A2AResult };
+            const result = parsed.result;
+            if (!result) return;
+            
+            // Accumulate text from approval stream
+            const kind = result.metadata?.coderAgent?.kind;
+            if (kind === 'text-content') {
+              const eventText = extractTextContent(result);
+              if (eventText) {
+                rawAnswer = rawAnswer + eventText;
+                log(`Accumulated from approval stream (total: ${rawAnswer.length} chars)`);
+              }
+            }
+            
+            // Check for completion in approval stream
+            if (result.status.state === 'input-required' && result.final === true) {
+              log('Approval stream completed');
+              isComplete = true;
+            }
+          } catch (parseError) {
+            log(`Approval stream parse error: ${(parseError as Error).message}`);
+          }
+        },
+        onError: (error) => {
+          log(`Approval stream SSE parser error: ${error.message}`);
+        },
+      });
+      
+      // Read approval stream
+      const approvalAbortPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
+        if (responseController.signal.aborted) {
+          reject(new DOMException('The operation was aborted', 'AbortError'));
+          return;
+        }
+        responseController.signal.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted', 'AbortError'));
+        }, { once: true });
+      });
+      
+      while (true) {
+        const approvalResult = await Promise.race([approvalReader.read(), approvalAbortPromise]);
+        const { done, value } = approvalResult as { done: boolean; value?: Uint8Array };
+        
+        if (done) {
+          log('Approval stream ended');
+          break;
+        }
+        
+        const chunk = new TextDecoder().decode(value);
+        approvalParser.feed(chunk);
+        
+        if (isComplete) {
+          break;
+        }
+      }
+      
+      await approvalReader.cancel();
+      log('Approval handling complete');
+    }
+    
     // Clean up timeouts
     clearTimeout(connectionTimeoutId);
     clearTimeout(responseTimeoutId);
