@@ -252,6 +252,71 @@ describe('executeSearchA2A', () => {
     expect(incrementSearchCount).toHaveBeenCalledAfter(fetchMock);
   });
 
+  it('handles non-YOLO approval flow', async () => {
+    // Mock link processing for approval flow test
+    vi.mocked(extractLinks).mockReturnValue([]);
+    vi.mocked(stripLinks).mockImplementation((text) => text);
+    
+    // Mock first SSE stream: returns input-required + final: true with tool call
+    const mockStream1 = createSSEStreamWithId('task-123', [
+      { 
+        state: 'input-required', 
+        final: true,
+        message: { 
+          parts: [{ kind: 'data', data: { request: { callId: 'call-456', name: 'google_web_search' } } }] 
+        },
+        metadata: { coderAgent: { kind: 'tool-call-update' } }
+      },
+    ]);
+    
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: mockStream1,
+    });
+
+    // Mock approval response stream: returns actual search results
+    const mockStream2 = createSSEStream([
+      { 
+        state: 'working', 
+        message: { parts: [{ kind: 'text', text: 'Based on search...' }] },
+        kind: 'text-content'
+      },
+      { 
+        state: 'input-required', 
+        final: true,
+        message: { parts: [{ kind: 'text', text: 'Final answer' }] },
+        kind: 'text-content'
+      },
+    ]);
+    
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: mockStream2,
+    });
+
+    const result = await executeSearchA2A('test query');
+
+    // Verify approval POST was sent (second fetch call)
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    
+    // Verify second call is approval POST
+    const approvalCall = fetchMock.mock.calls[1];
+    expect(approvalCall[0]).toBe('http://localhost:41242');
+    expect(approvalCall[1]?.method).toBe('POST');
+    
+    const approvalBody = JSON.parse(approvalCall[1]?.body as string);
+    expect(approvalBody.method).toBe('message/stream');
+    expect(approvalBody.params.taskId).toBe('task-123');
+    expect(approvalBody.params.message.parts[0].data.callId).toBe('call-456');
+    expect(approvalBody.params.message.parts[0].data.outcome).toBe('proceed_once');
+
+    // Verify result contains approval stream content
+    expect(result.answer).toBe('Final answer');
+    expect(result.transport).toBe('a2a');
+  });
+
   // ============================================================================
   // Error Scenarios - Connection
   // ============================================================================
@@ -754,6 +819,48 @@ function createSSEStream(results: Array<{ state: string; final?: boolean; messag
       },
       cancel: async () => {
         // Mock cancel - just reset index
+        index = 0;
+      },
+    }),
+  } as unknown as ReadableStream<Uint8Array>;
+}
+
+/**
+ * Creates a mock ReadableStream for SSE events with explicit task ID
+ */
+function createSSEStreamWithId(taskId: string, results: Array<{ state: string; final?: boolean; message: { parts: Array<{ kind?: string; type?: string; text?: string; data?: unknown }> }; kind?: string; metadata?: unknown }>) {
+  const encoder = new TextEncoder();
+  const events = results.map(result => {
+    const { final, kind, ...statusData } = result;
+    const data = JSON.stringify({
+      jsonrpc: '2.0',
+      id: taskId,
+      result: {
+        status: statusData,
+        final, // Put final at result level, not inside status
+        metadata: {
+          coderAgent: {
+            kind: kind || 'text-content',
+          },
+        },
+      },
+    });
+    return `data: ${data}\n\n`;
+  });
+  
+  let index = 0;
+  
+  return {
+    getReader: () => ({
+      read: async () => {
+        if (index < events.length) {
+          const value = encoder.encode(events[index]);
+          index++;
+          return { done: false, value };
+        }
+        return { done: true, value: undefined };
+      },
+      cancel: async () => {
         index = 0;
       },
     }),
